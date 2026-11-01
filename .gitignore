@@ -1,0 +1,29 @@
+# Publish only the application, tests, and README media.
+/*
+!/.gitignore
+!/.vercelignore
+!/README.md
+!/package.json
+!/package-lock.json
+!/index.html
+!/vercel.json
+!/src/
+!/public/
+!/tests/
+!/.github/
+/.github/*
+!/.github/media/
+
+# Never commit credentials or local configuration, even in allowed folders.
+.env*
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+node_modules/
+.vercel/
+
+# Superseded facade atlases retained locally, unused by the program.
+/public/textures/ruin_facade_color.jpg
+/public/textures/ruin_facade_nr.png

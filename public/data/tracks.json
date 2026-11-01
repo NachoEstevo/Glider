@@ -1,0 +1,20 @@
+{
+  "source": {
+    "title": "활공 - 포스트 아포칼립스 감성 앰비언트/에픽뮤직 9곡 플레이리스트",
+    "curator": "daymoon playlist",
+    "url": "https://www.youtube.com/watch?v=khnr4-ehwKA",
+    "channel": "https://www.youtube.com/channel/UCkXo4uZcFUXaJWTDTmU3WnA",
+    "art": { "name": "Yishu 5", "url": "https://www.artstation.com/artwork/b1rOn" }
+  },
+  "tracks": [
+    { "start": 0, "artist": "Tony Anderson", "title": "Ariana" },
+    { "start": 557, "artist": "Ever So Blue", "title": "Progress" },
+    { "start": 696, "artist": "Thomas Bergersen", "title": "Forever in My Dreams" },
+    { "start": 821, "artist": "Thomas Bergersen", "title": "Eyes Closing" },
+    { "start": 1015, "artist": "Jakob Ahlbom", "title": "Pulsar" },
+    { "start": 1173, "artist": "Jakob Ahlbom", "title": "Endeavour" },
+    { "start": 1440, "artist": "Lama House", "title": "Cloaked Emotions" },
+    { "start": 1673, "artist": "Jakob Ahlbom", "title": "Distant Echo" },
+    { "start": 1870, "artist": "Thomas Bergersen", "title": "Remember Me" }
+  ]
+}

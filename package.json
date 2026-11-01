@@ -1,0 +1,23 @@
+{
+  "name": "glider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A quiet flight over a drowned world.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

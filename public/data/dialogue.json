@@ -1,0 +1,25 @@
+{
+  "voices": {
+    "pilot": { "name": "Brian", "voiceId": "nPczCjzI2devNBz1zQrb", "radio": true },
+    "ai": { "name": "Sarah", "voiceId": "EXAVITQu4vr4xnSDxMaL", "radio": false }
+  },
+  "worldRevealAt": 64,
+  "handoverAt": 168,
+  "lines": [
+    { "id": "00_sys", "speaker": "sys", "text": "Recognizing voice...", "at": 3.2, "hold": 2.6 },
+    { "id": "01_pilot", "speaker": "pilot", "text": "Tell me today's date.", "at": 6.0 },
+    { "id": "02_ai", "speaker": "ai", "text": "It's eleven fifty-six a.m., on November seventeenth, twenty one hundred.", "display": "It's 11:56 a.m. on November 17, 2100.", "at": 8.3 },
+    { "id": "03_pilot", "speaker": "pilot", "text": "How long have we been flying over Earth?", "at": 15.3 },
+    { "id": "04_ai", "speaker": "ai", "text": "We have flown a total of three thousand, seven hundred and ten days... nine hours, and seventeen minutes.", "display": "We have flown a total of 3,710 days, 9 hours and 17 minutes.", "at": 18.2 },
+    { "id": "05_pilot", "speaker": "pilot", "text": "How much fuel is left?", "at": 23.3 },
+    { "id": "06_ai", "speaker": "ai", "text": "We have twelve gallons left. Enough to fly for about five hours.", "display": "We have 12 gallons left. Enough to fly for about 5 hours.", "at": 25.6 },
+    { "id": "07_pilot", "speaker": "pilot", "text": "Save our journals and photos to the hard drive, please.", "at": 35.2 },
+    { "id": "08_ai", "speaker": "ai", "text": "Yes. I will proceed.", "at": 38.8 },
+    { "id": "09_log", "speaker": "ai", "kind": "log", "text": "Log entry. Five years of Earth reconnaissance after return. Possible loss of auxiliary probe power unit. Very little land to land on... mostly submerged. No one found. Unfeeling freedom.", "display": "Five years of Earth reconnaissance after return.\nPossible loss of auxiliary probe power unit.\nVery little land to land on, mostly submerged.\nNo one found. Unfeeling freedom.", "at": 46.0 },
+    { "id": "10_pilot", "speaker": "pilot", "text": "If you're done... let's fly at full speed.", "at": 149.2 },
+    { "id": "11_ai", "speaker": "ai", "text": "Where should I set our destination?", "at": 153.2 },
+    { "id": "12_pilot", "speaker": "pilot", "text": "No. Do you think a destination is useful?", "at": 156.0 },
+    { "id": "13_ai", "speaker": "ai", "text": "All we have left is a barrel of emergency fuel.", "at": 159.3 },
+    { "id": "14_pilot", "speaker": "pilot", "text": "Let's just go. Until it's all worn out.", "at": 163.0 }
+  ]
+}
