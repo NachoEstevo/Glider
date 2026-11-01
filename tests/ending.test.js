@@ -35,3 +35,15 @@ test('final glide clears terrain and produces a finite ending pose', () => {
   assert.equal(flight.throttle, 0);
   for (const value of Object.values(flight.pos)) assert.ok(Number.isFinite(value));
 });
+
+test('final glide preserves low water altitude without an upward jump', () => {
+  const flight = { pos: { x: 0, y: 6.9, z: 0 }, heading: 0, throttle: 1, speed: 34, bank: 0, pitch: 0, vSpeed: 0 };
+  const rig = { zoom: 1 };
+  const ending = new FlightEnding();
+  ending.begin(flight, rig);
+  for (let i = 0; i < 180; i++) {
+    ending.update(.1, flight, rig, () => -20);
+    assert.equal(flight.pos.y, 6.9);
+  }
+  assert.ok(ending.finished);
+});

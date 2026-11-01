@@ -326,7 +326,7 @@ async function main() {
     const pilotIn = phase === 'flight' ? input.update() : { steer: 0, climb: 0, boost: false };
     Object.assign(flight.input, pilotIn);
     if (phase === 'ending') {
-      const result = ending.update(dt, flight, rig, (x, z) => Math.max(0, worldHeight(x, z), obstacleTop(x, z)));
+      const result = ending.update(dt, flight, rig, (x, z) => Math.max(worldHeight(x, z), obstacleTop(x, z)));
       ui.setEndingFade(result.fade);
       if (result.fade > 0 && !audioFading) { audioFading = true; sound.finish(6); }
       if (result.finished) {

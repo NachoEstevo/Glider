@@ -53,7 +53,9 @@ export class FlightEnding {
     flight.vSpeed = damp(flight.vSpeed, -0.7, 0.5, dt);
     flight.pos.x += Math.sin(this.heading) * flight.speed * dt;
     flight.pos.z += Math.cos(this.heading) * flight.speed * dt;
-    flight.pos.y = Math.max(flight.pos.y + flight.vSpeed * dt, floorAt(flight.pos.x, flight.pos.z) + 14);
+    const ground = floorAt(flight.pos.x, flight.pos.z);
+    const floor = ground < -1 ? 6.9 : Math.max(0, ground) + 14;
+    flight.pos.y = Math.max(flight.pos.y + flight.vSpeed * dt, floor);
     rig.zoom = damp(rig.zoom, this.startZoom * 1.12, 0.12, dt);
     this.fade = clamp((this.elapsed - 12) / 6, 0, 1);
     this.finished = this.elapsed >= 18 - 1e-9;
