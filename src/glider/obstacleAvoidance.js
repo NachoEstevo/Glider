@@ -12,7 +12,7 @@ export class ObstacleAvoidance {
     const fx = Math.sin(heading), fz = Math.cos(heading);
     const rx = Math.cos(heading), rz = -Math.sin(heading);
     const reach = Math.max(100, speed * 8);
-    let highest = 0, terrainAhead = 0, near = 0, nearHazard = false, water = true, danger = 0;
+    let highest = 0, terrainAhead = 0, near = 0, nearHazard = false, water = true, danger = 0, distance = Infinity;
     const costs = [0, 0];
     // 10 m longitudinal spacing catches ordinary building footprints; half-wing
     // offsets include the extremities and center of each wing.
@@ -34,6 +34,7 @@ export class ObstacleAvoidance {
         }
         if (roof > -1 && roof + 14 > pos.y && d > 5) {
           danger = 1;
+          distance = Math.min(distance, d);
           // A blocked right side favors positive steer (turn left), and vice versa.
           costs[lateral >= 0 ? 0 : 1] += 1 / (1 + d / 30);
           if (lateral === 0) costs[1] += 1 / (1 + d / 30);
@@ -57,6 +58,6 @@ export class ObstacleAvoidance {
       this.clearTime += dt;
       if (this.clearTime > 1.5) this.side = 0;
     }
-    return { steer: this.side * 0.8, highest, terrainAhead, near, nearHazard, water };
+    return { steer: this.side * 0.8, highest, terrainAhead, near, nearHazard, water, distance };
   }
 }

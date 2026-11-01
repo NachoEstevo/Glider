@@ -7,22 +7,21 @@ import { worldHeight } from '../world/worldHeight.js';
 // the ocean without a synchronous height readback.
 const SEGMENTS = 64;
 const LIFE = 1.15;
-const WIDTH = 0.13;
+const WIDTH = 0.19;
 const IMPACT_LIFE = 1.5;
 const IMPACT_INTERVAL = 0.2;
 const VERT = /* glsl */`
 ${WATER_GLSL}
 in float aAge;
 in float aStrength;
-in float aTipHeight;
+in vec2 aSpread;
 out float vAlpha;
 out vec2 vUv;
 void main() {
   if (aStrength <= 0.0 || aAge >= 1.15) { vAlpha = 0.0; vUv = uv; gl_Position = vec4(2.0); return; }
-  vec2 xz = position.xz;
+  vec2 xz = position.xz + aSpread * aAge * 0.18;
   float water = waterAt(xz, vec3(0.0)).y;
-  float contact = 1.0 - smoothstep(0.25, 1.1, abs(aTipHeight - water));
-  vAlpha = aStrength * contact * pow(max(0.0, 1.0 - aAge / ${LIFE.toFixed(2)}), 1.5);
+  vAlpha = aStrength * pow(max(0.0, 1.0 - aAge / ${LIFE.toFixed(2)}), 1.5);
   vUv = uv;
   gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, water + 0.08, xz.y, 1.0);
 }`;
@@ -39,14 +38,12 @@ const SPRAY_VERT = /* glsl */`
 ${WATER_GLSL}
 in float aAge;
 in float aStrength;
-in float aTipHeight;
 out float vAlpha;
 void main() {
   if (aStrength <= 0.0 || aAge >= 0.45) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0); return; }
   float water = waterAt(position.xz, vec3(0.0)).y;
-  float contact = 1.0 - smoothstep(0.25, 1.1, abs(aTipHeight - water));
   float t = aAge;
-  vAlpha = aStrength * contact * max(0.0, 1.0 - t / 0.45);
+  vAlpha = aStrength * max(0.0, 1.0 - t / 0.45);
   vec4 view = viewMatrix * vec4(position.x, water + 0.12 + t * 0.65, position.z, 1.0);
   gl_PointSize = clamp(20.0 / max(1.0, -view.z), 1.0, 3.0);
   gl_Position = projectionMatrix * view;
@@ -72,9 +69,9 @@ export class WingWake {
     this.positions = new Float32Array(SEGMENTS * 2 * 4 * 3);
     this.ages = new Float32Array(SEGMENTS * 2 * 4).fill(LIFE);
     this.strengths = new Float32Array(SEGMENTS * 2 * 4);
-    this.heights = new Float32Array(SEGMENTS * 2 * 4);
+    this.spread = new Float32Array(SEGMENTS * 2 * 4 * 2);
     this.geo = new THREE.BufferGeometry();
-    for (const [name, array, size] of [['position', this.positions, 3], ['aAge', this.ages, 1], ['aStrength', this.strengths, 1], ['aTipHeight', this.heights, 1]]) {
+    for (const [name, array, size] of [['position', this.positions, 3], ['aAge', this.ages, 1], ['aStrength', this.strengths, 1], ['aSpread', this.spread, 2]]) {
       this.geo.setAttribute(name, new THREE.BufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
     const uv = new Float32Array(SEGMENTS * 2 * 8), indices = [];
@@ -93,6 +90,10 @@ export class WingWake {
     this.previous = [new THREE.Vector3(), new THREE.Vector3()];
     this.active = [false, false];
     this.cursor = [0, 0];
+    this.contactStrength = 0;
+    this.contactPan = 0;
+    this.contactPoint = new THREE.Vector3();
+    this.sideStrength = [0, 0];
   }
 
   update(dt, wingTips, flight) {
@@ -105,6 +106,7 @@ export class WingWake {
       }
     }
     for (let i = 0; i < this.ages.length; i++) this.ages[i] = Math.min(LIFE, this.ages[i] + dt);
+    let strongest = 0, pan = 0;
     for (let side = 0; side < 2; side++) {
       const node = wingTips[side], p = this.tips[side], prev = this.previous[side];
       node.updateWorldMatrix(true, false);
@@ -113,7 +115,16 @@ export class WingWake {
       const bank = THREE.MathUtils.clamp((Math.abs(flight.bank) - 0.25) / 0.25, 0, 1);
       const near = 1 - THREE.MathUtils.smoothstep(Math.abs(p.y), 0.4, 1.3);
       const water = near > 0 && bank > 0 && speed > 0 && worldHeight(p.x, p.z) < -0.5 && flight.obstacleTop(p.x, p.z) < 0;
-      const strength = speed * bank * near * (water ? 1 : 0);
+      const target = speed * bank * near * (water ? 1 : 0);
+      const sideResponse = 1 - Math.exp(-dt * (target > this.sideStrength[side] ? 12 : 6));
+      this.sideStrength[side] += (target - this.sideStrength[side]) * sideResponse;
+      // Never emit a trailing ghost after leaving the water envelope.
+      const strength = target > 0 ? this.sideStrength[side] : 0;
+      if (strength > strongest) {
+        strongest = strength;
+        pan = side === 0 ? 1 : -1;
+        this.contactPoint.copy(p);
+      }
       if (strength > 0.1 && this.impactCooldown <= 0) {
         const slot = this.impactCursor;
         this.impactCursor = (slot + 1) % this.impacts.length;
@@ -130,12 +141,16 @@ export class WingWake {
           const v = slot * 4 + j;
           const end = j < 2 ? prev : p, sign = j % 2 === 0 ? 1 : -1;
           this.positions[v * 3] = end.x + sign * nx; this.positions[v * 3 + 2] = end.z + sign * nz;
-          this.ages[v] = 0; this.strengths[v] = strength; this.heights[v] = j < 2 ? prev.y : p.y;
+          this.ages[v] = 0; this.strengths[v] = strength;
+          this.spread[v * 2] = sign * nx / WIDTH; this.spread[v * 2 + 1] = sign * nz / WIDTH;
         }
       }
       this.active[side] = strength > 0.01;
       prev.copy(p);
     }
-    for (const name of ['position', 'aAge', 'aStrength', 'aTipHeight']) this.geo.attributes[name].needsUpdate = true;
+    const response = 1 - Math.exp(-dt * (strongest > this.contactStrength ? 12 : 5));
+    this.contactStrength += (strongest - this.contactStrength) * response;
+    if (strongest > 0) this.contactPan += (pan - this.contactPan) * (1 - Math.exp(-dt * 10));
+    for (const name of ['position', 'aAge', 'aStrength', 'aSpread']) this.geo.attributes[name].needsUpdate = true;
   }
 }

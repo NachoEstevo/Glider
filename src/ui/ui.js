@@ -20,6 +20,7 @@ export class UI {
     document.body.append(this.musicRecovery);
     this.flightUi = false;   // HUD + info button allowed (after the intro)
     this.hidden = false;     // H key
+    this.helpHidden = false;
     this._toastTimer = 0;
     this._subsTimer = 0;
     this._modeTimer = 0;
@@ -179,22 +180,23 @@ export class UI {
       this.el.help.innerHTML = '<span>Drag to steer and climb</span><span>Tap <kbd>i</kbd> for credits</span>';
     }
     this._applyVisibility();
-    show(this.el.help, true);
-    setTimeout(() => show(this.el.help, false), 14000);
   }
 
   toggleHidden() {
     this.hidden = !this.hidden;
     this._applyVisibility();
-    if (this.hidden) show(this.el.help, false);
   }
 
-  toggleHelp() { show(this.el.help, this.el.help.classList.contains('hidden')); }
+  toggleHelp() {
+    this.helpHidden = !this.helpHidden;
+    this._applyVisibility();
+  }
 
   _applyVisibility() {
     const on = this.flightUi && !this.hidden;
     show(this.el.hud, on);
     show(this.el.info, on);
+    show(this.el.help, on && !this.helpHidden);
   }
 
   toggleCredits(force) {

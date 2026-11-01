@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { Flight } from '../src/glider/flight.js';
 import { createFlightObstacleIndex, planRuins, ruinFrame } from '../src/world/ruins.js';
 
 const building = (overrides = {}) => ({ x: 0, z: 0, y: -5, w: 10, d: 8, h: 30, yaw: 0.3, lean: 0.2, leanDir: 0.7, ...overrides });
@@ -49,4 +50,20 @@ test('shore roof lookup retains footprint filters while flight includes leaning 
     return Math.abs(dx * c - dz * s) < it.w / 2 && Math.abs(dx * s + dz * c) < it.d / 2;
   });
   assert.equal(plan.topAt(tower.x, tower.z), Math.max(-Infinity, ...matches.map(it => it.y + it.h)));
+});
+test('flight swerves around a leaning building through its conservative index', () => {
+  const top = createFlightObstacleIndex([building({ x: 0, z: 100, w: 20, d: 30, h: 90, yaw: .3, lean: .15 })]);
+  const flight = new Flight({start: new THREE.Vector3(0, 25, -100), heading: 0, terrain: () => -10, obstacleTop: top});
+  flight.autopilot = false;
+  flight.input.steer = 1;
+  flight.input.boost = true;
+  for (let i = 0; i < 120; i++) {
+    const y = flight.pos.y;
+    flight.update(.1);
+    assert.ok(Math.abs(flight.pos.y - y) < .5);
+    for (let wing = -14; wing <= 14; wing++) {
+      assert.equal(top(flight.pos.x + Math.cos(flight.heading) * wing, flight.pos.z - Math.sin(flight.heading) * wing), -Infinity);
+    }
+  }
+  assert.ok(flight.pos.z > 130);
 });

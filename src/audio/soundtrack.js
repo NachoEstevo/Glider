@@ -386,6 +386,26 @@ export class Soundtrack {
     swell.connect(depth).connect(this.seaGain.gain);
     swell.start();
     noise(0.7).connect(sea).connect(this.seaGain).connect(this.master);
+
+    // A single running noise source fades with wing contact, avoiding repeated splashes.
+    const wingFilter = ctx.createBiquadFilter();
+    wingFilter.type = 'bandpass';
+    wingFilter.frequency.value = 900;
+    wingFilter.Q.value = 0.55;
+    this.wingWaterGain = ctx.createGain();
+    this.wingWaterGain.gain.value = 0;
+    this.wingWaterPan = ctx.createStereoPanner();
+    noise(1.17).connect(wingFilter).connect(this.wingWaterGain).connect(this.wingWaterPan).connect(this.master);
+  }
+
+  // Called once per frame with the filtered wake contact. The source never restarts.
+  setWingWaterContact(strength, pan) {
+    if (!this.ctx || !this.wingWaterGain || this.finishing) return;
+    const amount = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 0;
+    const side = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
+    const t = this.ctx.currentTime;
+    this.wingWaterGain.gain.setTargetAtTime(amount * 0.08 * FX_LEVEL, t, amount > 0 ? 0.08 : 0.2);
+    this.wingWaterPan.pan.setTargetAtTime(side * 0.75, t, 0.12);
   }
 
   get time() { return this.music.currentTime; }

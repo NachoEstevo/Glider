@@ -37,25 +37,14 @@ export class FlightEnding {
     this.elapsed = 0;
     this.fade = 0;
     this.finished = false;
-    this.heading = flight.heading;
     this.startZoom = rig.zoom;
     flight.throttle = 0;
   }
 
-  update(dt, flight, rig, floorAt) {
+  update(dt, flight, rig) {
     dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 18 - this.elapsed));
     this.elapsed += dt;
-    flight.heading = this.heading;
-    flight.throttle = 0;
-    flight.speed = damp(flight.speed, 20, 0.12, dt);
-    flight.bank = damp(flight.bank, 0, 0.5, dt);
-    flight.pitch = damp(flight.pitch, -0.035, 0.5, dt);
-    flight.vSpeed = damp(flight.vSpeed, -0.7, 0.5, dt);
-    flight.pos.x += Math.sin(this.heading) * flight.speed * dt;
-    flight.pos.z += Math.cos(this.heading) * flight.speed * dt;
-    const ground = floorAt(flight.pos.x, flight.pos.z);
-    const floor = ground < -1 ? 6.9 : Math.max(0, ground) + 14;
-    flight.pos.y = Math.max(flight.pos.y + flight.vSpeed * dt, floor);
+    flight.update(dt, { gliding: true });
     rig.zoom = damp(rig.zoom, this.startZoom * 1.12, 0.12, dt);
     this.fade = clamp((this.elapsed - 12) / 6, 0, 1);
     this.finished = this.elapsed >= 18 - 1e-9;

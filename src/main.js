@@ -271,7 +271,7 @@ async function main() {
 
   // what the world sounds like around the glider: water against ruins, surf, island birds
   let envTimer = 0, soundEnv = null;
-  const camRight = new THREE.Vector3(), toBird = new THREE.Vector3();
+  const camRight = new THREE.Vector3(), toBird = new THREE.Vector3(), toWing = new THREE.Vector3();
   function listen() {
     const { x, z, y } = flight.pos;
     let land = 0, shore = 0;
@@ -326,7 +326,7 @@ async function main() {
     const pilotIn = phase === 'flight' ? input.update() : { steer: 0, climb: 0, boost: false };
     Object.assign(flight.input, pilotIn);
     if (phase === 'ending') {
-      const result = ending.update(dt, flight, rig, (x, z) => Math.max(worldHeight(x, z), obstacleTop(x, z)));
+      const result = ending.update(dt, flight, rig);
       ui.setEndingFade(result.fade);
       if (result.fade > 0 && !audioFading) { audioFading = true; sound.finish(6); }
       if (result.finished) {
@@ -378,6 +378,10 @@ async function main() {
     caustics.update(sky.sunDir);
     surface.update(camera, elapsed % 3600);
     wingWake.update(dt, glider.wingTips, flight);
+    toWing.copy(wingWake.contactPoint).sub(camera.position);
+    camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    const wingPan = THREE.MathUtils.clamp(toWing.dot(camRight) / Math.max(1, toWing.length()), -1, 1);
+    sound.setWingWaterContact(wingWake.contactStrength, wingPan);
     spray.update();
 
     if (renderer.shadowMap.needsUpdate) metrics.shadowUpdates++;

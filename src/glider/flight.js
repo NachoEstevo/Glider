@@ -11,6 +11,20 @@ const MAX_BANK = THREE.MathUtils.degToRad(38);
 
 const damp = (a, b, rate, dt) => a + (b - a) * (1 - Math.exp(-rate * dt));
 
+// Conservative cross covering the wing and the fuselage from nose to tail.
+function obstructed(topAt, x, z, heading, altitude) {
+  const fx = Math.sin(heading), fz = Math.cos(heading);
+  for (let lateral = -14; lateral <= 14; lateral += 0.5) {
+    if (topAt(x + fz * lateral, z - fx * lateral) + MIN_ALT > altitude) return true;
+  }
+  for (let longitudinal = -9; longitudinal <= 9; longitudinal += 1) {
+    for (const lateral of [-3, 0, 3]) {
+      if (topAt(x + fx * longitudinal + fz * lateral, z + fz * longitudinal - fx * lateral) + MIN_ALT > altitude) return true;
+    }
+  }
+  return false;
+}
+
 export class Flight {
   constructor({ start = new THREE.Vector3(0, 70, 0), heading = 0.6, obstacleTop = () => -Infinity, terrain = worldHeight } = {}) {
     this.pos = start.clone();
@@ -55,24 +69,24 @@ export class Flight {
     return out.set(Math.sin(this.heading), 0, Math.cos(this.heading));
   }
 
-  update(dt) {
+  update(dt, { gliding = false } = {}) {
     if (!Number.isFinite(dt) || dt <= 0) return;
     // Bound integration steps so a slow frame cannot tunnel through a roof.
     while (dt > 0) {
       const step = Math.min(dt, 0.1);
-      this._updateStep(step);
+      this._updateStep(step, gliding);
       dt -= step;
     }
   }
 
-  _updateStep(dt) {
+  _updateStep(dt, gliding) {
     this.time += dt;
     const inp = this.input;
-    const active = Math.abs(inp.steer) > 0.02 || Math.abs(inp.climb) > 0.02 || inp.boost;
+    const active = !gliding && (Math.abs(inp.steer) > 0.02 || Math.abs(inp.climb) > 0.02 || inp.boost);
     this.idle = active ? 0 : this.idle + dt;
-    const auto = this.autopilot && this.idle > 6;
+    const auto = !gliding && this.autopilot && this.idle > 6;
 
-    let steer = inp.steer, climb = inp.climb;
+    let steer = gliding ? 0 : inp.steer, climb = gliding ? -0.05 : inp.climb;
     if (auto) {
       const to = new THREE.Vector2(this.waypoint.x - this.pos.x, this.waypoint.y - this.pos.z);
       if (to.length() < 220) this._pickWaypoint();
@@ -98,8 +112,9 @@ export class Flight {
     }
     const clearance = this.clearance;
     this.avoidanceAssist = clearance.steer;
-    // Pilot input can resist the assist; it retains limited authority.
-    steer = THREE.MathUtils.clamp(steer + clearance.steer, -1, 1);
+    // A threatened corridor gets priority over input that points into it.
+    // The regular stick and bank damping retain the smooth roll-in.
+    if (clearance.steer) steer = clearance.steer;
 
     // ease the stick itself: keys are all-or-nothing, the craft should not be
     this.stick ??= { steer: 0, climb: 0 };
@@ -111,46 +126,78 @@ export class Flight {
     // steer +1 = right; with the nose on +z, a positive roll lifts the left (+x) wing
     this.bank = damp(this.bank, steer * MAX_BANK + sway, 1.25, dt);
 
-    const targetSpeed = (inp.boost ? BOOST : CRUISE) * this.speedScale;
-    this.speed = damp(this.speed, targetSpeed, inp.boost ? 0.7 : 0.45, dt);
-    this.throttle = damp(this.throttle, THREE.MathUtils.clamp((this.speed - CRUISE * 0.5) / (BOOST - CRUISE * 0.5), 0, 1), 2, dt);
+    let targetSpeed = gliding ? 20 : (inp.boost ? BOOST : CRUISE) * this.speedScale;
+    if (Number.isFinite(clearance.distance)) {
+      // Start shedding speed before the turn radius becomes too large.
+      targetSpeed = Math.min(targetSpeed, Math.max(8, Math.sqrt(Math.max(0, clearance.distance - 25) * 16)));
+    }
+    this.speed = damp(this.speed, targetSpeed, targetSpeed < this.speed && Number.isFinite(clearance.distance) ? 1.2 : (gliding ? 0.12 : (inp.boost ? 0.7 : 0.45)), dt);
+    this.throttle = gliding ? 0 : damp(this.throttle, THREE.MathUtils.clamp((this.speed - CRUISE * 0.5) / (BOOST - CRUISE * 0.5), 0, 1), 2, dt);
 
     // coordinated turn; turning right lowers the heading (0 = +z, +pi/2 = +x)
     const yawRate = (G * Math.tan(this.bank)) / Math.max(this.speed, 8);
-    this.heading -= yawRate * dt;
+    const oldHeading = this.heading;
+    const nextHeading = oldHeading - yawRate * dt;
+    const turnBlocked = obstructed(this.obstacleTop, this.pos.x, this.pos.z, nextHeading, this.pos.y);
+    if (!turnBlocked) this.heading = nextHeading;
 
     // altitude: climb input sets vertical speed, with floor/ceiling
-    let nearTop = 0, nearHazard = false;
+    let nearTerrain = 0, nearTerrainHazard = false;
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     for (const d of [0, Math.max(22, this.speed * 0.7)]) {
       for (const lateral of [-14, -7, 0, 7, 14]) {
         const x = this.pos.x + fx * d + fz * lateral;
         const z = this.pos.z + fz * d - fx * lateral;
-        const terrain = this.terrain(x, z), roof = this.obstacleTop(x, z);
-        nearTop = Math.max(nearTop, terrain, roof);
-        if (terrain > -1 || roof > -1) nearHazard = true;
+        const terrain = this.terrain(x, z);
+        nearTerrain = Math.max(nearTerrain, terrain);
+        if (terrain > -1) nearTerrainHazard = true;
       }
     }
-    // Keep low flight for clear water; rise early for terrain and nearby roofs.
-    const floor = clearance.water ? 6.9 : Math.max(nearTop, clearance.terrainAhead) + MIN_ALT;
+    // Building avoidance is horizontal; only terrain participates in the floor.
+    const floor = clearance.terrainAhead > -1 && (nearTerrainHazard || clearance.terrainAhead > 0)
+      ? Math.max(nearTerrain, clearance.terrainAhead) + MIN_ALT : 6.9;
     let vs = climb * 14;
-    const recoveryHeight = floor + (clearance.water ? 0 : 6);
+    const recoveryHeight = floor + (floor > 6.9 ? 6 : 0);
     if (this.pos.y < recoveryHeight) vs = Math.max(vs, (recoveryHeight - this.pos.y) * 1.2);
     if (this.pos.y > MAX_ALT) vs = Math.min(vs, (MAX_ALT - this.pos.y) * 0.8);
     this.vSpeed = damp(this.vSpeed, vs, 1.1, dt);
 
     const f = this.forward();
-    this.pos.addScaledVector(f, this.speed * dt);
+    // Sweep the full wingspan along this step. This is an emergency backstop
+    // for late/narrow detections; anticipation normally keeps it inactive.
+    const travel = this.speed * dt;
+    const segments = Math.max(1, Math.ceil(travel / 2));
+    let safeTravel = 0;
+    for (let i = 1; i <= segments; i++) {
+      const d = travel * i / segments;
+      if (obstructed(this.obstacleTop, this.pos.x + f.x * d, this.pos.z + f.z * d, this.heading, this.pos.y)) break;
+      safeTravel = d;
+    }
+    this.pos.addScaledVector(f, safeTravel);
+    // If detection came too late to turn, ease sideways away from the wall so
+    // the guard does not leave the aircraft permanently pinned against it.
+    const escapeNeeded = this.avoidance.side && (safeTravel < travel || clearance.distance < Math.max(45, this.speed * 2.5));
+    this.escapeSpeed = damp(this.escapeSpeed ?? 0, escapeNeeded ? 8 : 0, 1.4, dt);
+    if (this.escapeSpeed > 0.01 && this.avoidance.side) {
+      const slide = -this.avoidance.side * this.escapeSpeed * dt;
+      const x = this.pos.x + f.z * slide, z = this.pos.z - f.x * slide;
+      if (!obstructed(this.obstacleTop, x, z, this.heading, this.pos.y)) {
+        this.pos.x = x;
+        this.pos.z = z;
+      }
+    }
     const destinationTerrain = this.terrain(this.pos.x, this.pos.z);
-    const destinationRoof = this.obstacleTop(this.pos.x, this.pos.z);
-    const destinationGround = Math.max(destinationTerrain, 0, destinationRoof);
-    const destinationHazard = destinationTerrain > -1 || destinationRoof > -1;
-    const floorLimit = nearHazard || destinationHazard ? Math.max(destinationGround, nearTop) + MIN_ALT : 6.9;
-    const nextY = this.pos.y + this.vSpeed * dt;
+    const floorLimit = nearTerrainHazard || destinationTerrain > -1 ? Math.max(destinationTerrain, nearTerrain, 0) + MIN_ALT : 6.9;
+    let nextY = this.pos.y + this.vSpeed * dt;
+    // A roof below may arrest descent, but must never push the aircraft upward.
+    if (nextY < this.pos.y && obstructed(this.obstacleTop, this.pos.x, this.pos.z, this.heading, nextY)) {
+      nextY = this.pos.y;
+      this.vSpeed = 0;
+    }
     this.pos.y = Math.max(nextY, floorLimit);
     if (nextY <= floorLimit && this.vSpeed < 0) this.vSpeed = 0;
     this.pitch = damp(this.pitch, Math.atan2(this.vSpeed, this.speed) * 0.9, 1.9, dt);
-    this.distance += this.speed * dt;
+    this.distance += safeTravel;
   }
 
   applyTo(glider) {
