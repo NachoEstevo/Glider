@@ -13,6 +13,8 @@ A quiet flight over a drowned world. Take the controls, follow the music, and wa
 - A continuous soundtrack, cockpit dialogue, and spatial environmental sound.
 - A final glide as the music ends and the fuel runs out.
 
+[Preview the final glide](https://glider.nachoestevo.com/?preview=ending) — the last few seconds of music, followed by a quiet glide and fade to darkness.
+
 ![Ivy reclaiming the drowned city](.github/media/world.png)
 
 ## Fly

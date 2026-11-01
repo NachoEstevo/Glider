@@ -22,49 +22,223 @@ export class Soundtrack {
     this.voiceEnd = 0;
     this.started = false;
     this.finishing = false;
+    this.onMusicState = () => {};
+    this._musicState = 'paused';
+    this._hidden = false;
+    this._resumeAfterVisibility = false;
+    this._generation = 0;
+    this._sourceIndex = -1;
 
     const el = (this.music = new Audio());
     el.loop = false;
     el.preload = 'auto';
     el.crossOrigin = 'anonymous';
     const pick = MUSIC_SOURCES.find((s) => el.canPlayType(s.type)) ?? MUSIC_SOURCES[1];
+    this._sourceIndex = MUSIC_SOURCES.indexOf(pick);
     el.src = pick.src;
+    el.addEventListener('playing', () => { this._clearStall(); if (!this._hidden && !this.finishing && !this._retryPending) this._setMusicState('playing'); });
+    el.addEventListener('pause', () => {
+      if (!this._hidden && !this.finishing && !el.ended) this._setMusicState('paused');
+    });
+    el.addEventListener('ended', () => { this._clearStall(); this._generation++; this._setMusicState('ended'); });
+    el.addEventListener('waiting', () => this._waitForMusic());
+    el.addEventListener('stalled', () => this._waitForMusic());
+    el.addEventListener('error', () => this._musicError());
   }
 
-  // must run from a user gesture
+  get musicDiagnostic() {
+    return { state: this._musicState, currentTime: this.music.currentTime,
+      readyState: this.music.readyState, errorCode: this.music.error?.code ?? null };
+  }
+
+  _setMusicState(state) {
+    if (this._musicState === state) return;
+    this._musicState = state;
+    this.onMusicState(state);
+  }
+
+  _clearStall() { clearTimeout(this._stallTimer); this._stallTimer = null; }
+
+  _waitForMusic() {
+    if (this._hidden || this.finishing || this.music.paused || this.music.ended || this._stallTimer) return;
+    this._setMusicState('buffering');
+    this._stallTimer = setTimeout(() => {
+      this._stallTimer = null;
+      if (!this._hidden && !this.finishing && !this.music.paused && !this.music.ended)
+        this._setMusicState('blocked');
+    }, 10000);
+  }
+
+  _musicError() {
+    this._clearStall();
+    if (this.finishing || this.music.ended || this._musicState === 'ended') return;
+    if (!this._fallbackPending && !this._retryPending) this._recoveryTime = this.music.currentTime;
+    this._cancelRetry?.();
+    const next = MUSIC_SOURCES.findIndex((source, i) => i !== this._sourceIndex && this.music.canPlayType(source.type));
+    if (next < 0 || this._triedFallback) { clearTimeout(this._fallbackTimer); this.music.removeEventListener('loadedmetadata', this._fallbackMetadata); this._fallbackPending = false; this._setMusicState('error'); return; }
+    this._triedFallback = true;
+    const shouldPlay = this._resumeAfterVisibility || (!this._hidden && (!this.music.paused || this._musicState === 'playing' || this._musicState === 'buffering'));
+    this._fallbackPending = true;
+    this._fallbackTimer = setTimeout(() => {
+      if (this._fallbackPending && !this.finishing) {
+        this._fallbackPending = false;
+        this.music.removeEventListener('loadedmetadata', this._fallbackMetadata);
+        this._setMusicState('error');
+      }
+    }, 10000);
+    this._sourceIndex = next;
+    this._setMusicState('buffering');
+    this._fallbackMetadata = () => {
+      if (!this._fallbackPending) return;
+      this._fallbackPending = false;
+      clearTimeout(this._fallbackTimer);
+      if (this.finishing || this._musicState === 'ended') return;
+      try { this.music.currentTime = this._recoveryTime; } catch { /* unavailable seek range */ }
+      const resume = this._resumeRequested || (shouldPlay && this.started);
+      this._resumeRequested = false;
+      if (resume && !this._hidden) void this.resumeMusic();
+      else if (resume) this._resumeAfterVisibility = true;
+      else if (!this._hidden) this._setMusicState('paused');
+    };
+    this.music.addEventListener('loadedmetadata', this._fallbackMetadata, { once: true });
+    this.music.src = MUSIC_SOURCES[next].src;
+    this.music.load();
+  }
+
+  // Called from the start gesture; the audio graph is created exactly once.
   async start() {
-    if (this.started) return;
+    if (this.finishing || this.music.ended) return;
     if (this._starting) return this._starting;
+    if (this.started) return;
     this._starting = this._start();
     try { await this._starting; } finally { this._starting = null; }
   }
 
   async _start() {
-    if (this.ctx) {
-      await this.ctx.resume();
-      await this.music.play();
-      this.started = true;
-      this.musicGain.gain.setTargetAtTime(0.9, this.ctx.currentTime, 1.2);
+    if (!this.ctx) {
+      const ctx = (this.ctx = new AudioContext());
+      this.master = ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 1;
+      this.master.connect(ctx.destination);
+      this.musicGain = ctx.createGain();
+      this.musicGain.gain.value = 0;
+      ctx.createMediaElementSource(this.music).connect(this.musicGain).connect(this.master);
+      this.voiceGain = ctx.createGain();
+      this.voiceGain.gain.value = 1.15 * FX_LEVEL;
+      this.voiceGain.connect(this.master);
+      this._ambience();
+      this.musicGain.gain.setTargetAtTime(0.9, ctx.currentTime, 1.2);
       this._loadVoices();
       this._loadSfx();
-      return;
     }
-    const ctx = (this.ctx = new AudioContext());
-    this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 1;
-    this.master.connect(ctx.destination);
-    this.musicGain = ctx.createGain();
-    this.musicGain.gain.value = 0;
-    ctx.createMediaElementSource(this.music).connect(this.musicGain).connect(this.master);
-    this.voiceGain = ctx.createGain();
-    this.voiceGain.gain.value = 1.15 * FX_LEVEL;
-    this.voiceGain.connect(this.master);
-    this._ambience();
-    await this.music.play();
-    this.started = true;
-    this.musicGain.gain.setTargetAtTime(0.9, ctx.currentTime, 1.2);
-    this._loadVoices();   // in the background; the first line plays at 6 s
-    this._loadSfx();
+    await this.resumeMusic();
+  }
+
+  async resumeMusic(position) {
+    if (!this.ctx || this._hidden || this.finishing || this.music.ended || this._musicState === 'ended') return;
+    if (Number.isFinite(position) && position >= 0) this._recoveryTime = position;
+    if (this._fallbackPending) { this._resumeRequested = true; return; }
+    if (this._musicState === 'error' || this._retryNeedsReload) return this._retryMusic();
+    if (Number.isFinite(position) && position >= 0) {
+      if (this.music.readyState < 1) return this._retryMusic(false);
+      try { this.music.currentTime = position; } catch { return this._retryMusic(false); }
+    }
+    const generation = this._generation;
+    this._playPending = true;
+    try {
+      await this.ctx.resume();
+      if (generation !== this._generation || this._hidden || this.finishing) return;
+      await this.music.play();
+      if (generation !== this._generation || this._hidden || this.finishing) {
+        if (this._hidden || this.finishing) this.music.pause();
+        return;
+      }
+      this.started = true;
+      this._setMusicState('playing');
+      return true;
+    } catch (error) {
+      if (generation === this._generation && !this._hidden && !this.finishing)
+        this._setMusicState(error?.name === 'NotAllowedError' ? 'blocked' : 'error');
+    } finally {
+      if (generation === this._generation) this._playPending = false;
+    }
+  }
+
+  // Start playback in the gesture, then restore the saved position when metadata arrives.
+  async _retryMusic(reload = true) {
+    const generation = this._generation;
+    const time = this._recoveryTime ?? this.music.currentTime;
+    this._retryPending = true;
+    this._retryNeedsReload = reload;
+    this._setMusicState('buffering');
+    let resolveMetadata;
+    const metadata = new Promise(resolve => { resolveMetadata = resolve; });
+    const cleanup = () => {
+      clearTimeout(timer);
+      this.music.removeEventListener('loadedmetadata', onMetadata);
+      this._cancelRetry = null;
+      this._retryPending = false;
+    };
+    const onMetadata = () => {
+      try { this.music.currentTime = time; } catch { cleanup(); resolveMetadata(false); return; }
+      cleanup(); resolveMetadata(true);
+    };
+    const timer = setTimeout(() => { cleanup(); resolveMetadata(false); }, 10000);
+    this._cancelRetry = () => { cleanup(); resolveMetadata(false); };
+    this.music.addEventListener('loadedmetadata', onMetadata, { once: true });
+    try {
+      if (reload) this.music.load();
+      const context = this.ctx.resume();
+      const play = this.music.play();
+      const [seeked] = await Promise.race([
+        Promise.all([metadata, context, play]),
+        metadata.then(ok => ok ? new Promise(() => {}) : [false]),
+      ]);
+      if (!seeked || generation !== this._generation || this._hidden || this.finishing) {
+        if (generation === this._generation && !this._hidden && !this.finishing) {
+          this.music.pause(); this._setMusicState('error');
+        }
+        return;
+      }
+      this.started = true;
+      this._recoveryTime = undefined;
+      this._retryNeedsReload = false;
+      this._setMusicState('playing');
+      return true;
+    } catch (error) {
+      this._cancelRetry?.();
+      if (generation === this._generation && !this._hidden && !this.finishing)
+        this._setMusicState(error?.name === 'NotAllowedError' ? 'blocked' : 'error');
+    }
+  }
+
+  async handleVisibility(hidden) {
+    if (hidden === this._hidden) return;
+    this._hidden = hidden;
+    this._generation++;
+    this._clearStall();
+    try {
+      if (hidden) {
+        const retrying = this._retryPending;
+        this._cancelRetry?.();
+        if (retrying) this._setMusicState('error');
+        this._resumeAfterVisibility = !retrying && !!this.ctx && !this.finishing && !this.music.ended &&
+          (this.started || this._resumeRequested || this._playPending) &&
+          (!this.music.paused || this._playPending || this._musicState === 'buffering' || this._musicState === 'playing');
+        this._playPending = false;
+        this.music.pause();
+        if (this.ctx) await this.ctx.suspend();
+      } else if (this._resumeAfterVisibility && !this.finishing && !this.music.ended) {
+        if (!this._fallbackPending) {
+          this._resumeAfterVisibility = false;
+          await this.resumeMusic();
+        }
+      } else if (this.started && !this.finishing && this.ctx) {
+        await this.ctx.resume();
+      }
+    } catch {
+      if (!this._hidden && !this.finishing) this._setMusicState('blocked');
+    }
   }
 
   // --- world sounds (generated with ElevenLabs, tools/generate_sfx.py) -------------------
@@ -267,6 +441,12 @@ export class Soundtrack {
   finish(seconds = 6) {
     if (this.finishing) return;
     this.finishing = true;
+    this._generation++;
+    this._clearStall();
+    clearTimeout(this._fallbackTimer);
+    this._cancelRetry?.();
+    this.music.removeEventListener('loadedmetadata', this._fallbackMetadata);
+    this._setMusicState('ended');
     if (!this.ctx) return;
     const gain = this.master.gain, now = this.ctx.currentTime;
     gain.cancelScheduledValues(now);

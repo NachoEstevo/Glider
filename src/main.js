@@ -5,6 +5,7 @@ import { bakeShoreMap } from './water/shoreMap.js';
 import { bakeWaterTextures } from './water/bakeTextures.js';
 import { WaveCaustics } from './water/Caustics.js';
 import { Spray } from './water/Spray.js';
+import { WingWake } from './water/WingWake.js';
 import { SkySystem } from './scene/sky.js';
 import { createTerrain } from './scene/terrain.js';
 import { FloaterShadow } from './scene/floaterShadow.js';
@@ -29,6 +30,7 @@ import { AdaptiveQuality } from './engine/AdaptiveQuality.js';
 const REFLECT_LAYER = 1;
 const args = new URLSearchParams(location.search);
 const DEV = args.has('dev');   // straight into the flight, no audio (for tuning)
+const PREVIEW_ENDING = args.get('preview') === 'ending';
 const ui = new UI();
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
 
@@ -59,7 +61,7 @@ async function main() {
   const landmarkPlan = planLandmarks();
   const landmarks = buildLandmarks(landmarkPlan);   // geometry first: its footprints feed the shore map
   const lmTops = landmarkTops(landmarkPlan);
-  const obstacleTop = (x, z) => Math.max(ruinPlan.topAt(x, z), lmTops.topAt(x, z));
+  const obstacleTop = (x, z) => Math.max(ruinPlan.flightTopAt(x, z), lmTops.topAt(x, z));
   const sky = new SkySystem(renderer);
   Object.assign(sky.params, { elevation: 42, azimuth: 205, cloudCoverage: 0.34, turbidity: 2.4 });
   // the shore map sees the roofs that break the surface, so foam wraps around them
@@ -111,7 +113,8 @@ async function main() {
   su.uReflMatrix.value = reflection.textureMatrix;
   const waterScene = new THREE.Scene();
   const spray = new Spray(surface, shore);
-  waterScene.add(surface.mesh, spray.mesh, spray.splash);
+  const wingWake = new WingWake(surface);
+  waterScene.add(surface.mesh, spray.mesh, spray.splash, wingWake.group);
 
   const post = new PostFX(renderer);
   Object.assign(post.params, { bloomStrength: mobile ? 0 : 0.035, bloomThreshold: 1.5, contrast: 1.04, saturation: 1.07, keyValue: 0.2 });
@@ -196,6 +199,12 @@ async function main() {
     else pendingTrack = [t, i];
   };
   let phase = 'start';   // start -> starting -> intro -> flight -> ending -> ended
+  const resumeMusic = () => sound.resumeMusic(sound.started ? undefined : session.time);
+  sound.onMusicState = (state) => {
+    if (phase !== 'start') ui.setMusicState(state, resumeMusic);
+  };
+  addEventListener('visibilitychange', () => { void sound.handleVisibility(document.hidden); });
+  if (document.hidden) void sound.handleVisibility(true);
   const intro = new Intro({
     dialogue, soundtrack: sound, ui,
     onReveal: () => {
@@ -222,7 +231,6 @@ async function main() {
     else if (a === 'fullscreen') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   };
 
-  let introStart = 0;
   async function startAudio() {
     // In dev mode flight can precede the first gesture. Join the existing session
     // rather than refilling the tank when delayed audio starts.
@@ -236,11 +244,22 @@ async function main() {
     phase = 'starting';
     ui.showIntro(true);
     try { await startAudio(); } catch (e) { console.warn('audio', e); }
+    ui.setMusicState(sound.musicDiagnostic.state, resumeMusic);
     // Do not advance the fallback clock while media startup is still pending.
     // Both the dialogue and fuel join the audio clock together, or start their
     // shared silent fallback after playback has actually failed.
-    introStart = elapsed;
     phase = 'intro';
+    if (PREVIEW_ENDING) {
+      const duration = Number.isFinite(sound.music.duration) ? sound.music.duration : session.duration;
+      const time = Math.max(0, duration - 8);
+      if (sound.started) sound.music.currentTime = time;
+      session.time = time;
+      session.duration = duration;
+      if (!sound.started) void sound.resumeMusic(time);
+      rig.intro = 0;
+      intro.skip();
+      return;
+    }
     intro.begin();
   }
 
@@ -276,8 +295,8 @@ async function main() {
   }
 
   function frame(now) {
-    // Audio may continue in a hidden tab. Resume from its clock when visible,
-    // and keep the final glide for the viewer instead of spending it offscreen.
+    // Visibility pauses audio separately. Keep the simulation and final glide
+    // for the viewer instead of spending them offscreen.
     if (document.hidden) {
       last = now;
       requestAnimationFrame(frame);
@@ -303,7 +322,7 @@ async function main() {
     }
 
     // story clock is the music (keeps voices in sync with the mix)
-    if (phase === 'intro') intro.update(sound.ctx && !sound.music.paused ? sound.time : elapsed - introStart);
+    if (phase === 'intro') intro.update(progress.time);
     const pilotIn = phase === 'flight' ? input.update() : { steer: 0, climb: 0, boost: false };
     Object.assign(flight.input, pilotIn);
     if (phase === 'ending') {
@@ -315,7 +334,13 @@ async function main() {
         sound.music.pause();
         sound.finish(0.05);
         setTimeout(() => { sound.ctx?.suspend().catch(() => {}); }, 100);
-        ui.showEnding(() => location.reload());
+        ui.showEnding(() => {
+          if (PREVIEW_ENDING) {
+            const url = new URL(location.href);
+            url.searchParams.delete('preview');
+            location.assign(url.href);
+          } else location.reload();
+        });
         return; // The opaque end screen needs no FFT, reflection or render loop.
       }
     } else flight.update(dt);
@@ -352,6 +377,7 @@ async function main() {
     ocean.update(dt);
     caustics.update(sky.sunDir);
     surface.update(camera, elapsed % 3600);
+    wingWake.update(dt, glider.wingTips, flight);
     spray.update();
 
     if (renderer.shadowMap.needsUpdate) metrics.shadowUpdates++;
@@ -373,7 +399,7 @@ async function main() {
   }
   requestAnimationFrame(frame);
 
-  window.app = { flight, rig, sky, post, surface, ocean, sound, ui, scene, camera, glider, birds, applySun, quality, intro, terrain, renderer, session, ending, adaptive, metrics, get phase() { return phase; } };
+  window.app = { flight, rig, sky, post, surface, ocean, sound, ui, scene, camera, glider, birds, applySun, quality, intro, terrain, renderer, session, ending, adaptive, metrics, wingWake, get phase() { return phase; } };
 
   if (args.has('debug')) (await import('./debug.js')).debugPanel(window.app);
   if (DEV) {
@@ -383,7 +409,10 @@ async function main() {
     const wake = () => { if (phase === 'flight') startAudio().catch((e) => console.warn('audio', e)); removeEventListener('pointerdown', wake); removeEventListener('keydown', wake); };
     addEventListener('pointerdown', wake);
     addEventListener('keydown', wake);
-  } else ui.ready(begin);
+  } else {
+    ui.ready(begin);
+    if (PREVIEW_ENDING) ui.el.begin.querySelector('.begin-label').textContent = 'Preview ending';
+  }
 }
 
 main().catch((e) => {

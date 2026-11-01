@@ -163,3 +163,21 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 .ending .begin { margin-top: 36px; }
 .ending-credits { margin-top: 22px; border: 0; background: none; color: var(--dim); cursor: pointer; text-transform: uppercase; letter-spacing: .2em; font-size: 10px; padding: 10px; }
 .ending-credits:hover, .ending-credits:focus-visible { color: var(--ink); }
+
+.music-recovery {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 100;
+  padding: .6rem .9rem; border: 1px solid rgba(255,255,255,.5);
+  background: rgba(10,20,25,.85); color: white; font: inherit; cursor: pointer;
+}
+.music-recovery:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+
+.ending-roll-viewport { position: absolute; inset: 0; overflow: hidden; }
+.ending-roll { position: absolute; top: 0; left: 0; width: 100%; box-sizing: border-box; padding: 24px; font-size: clamp(19px, 3vw, 25px); font-weight: 300; line-height: 1.45; }
+.ending-roll .start-ko { margin-bottom: 48px; }
+.ending-role { margin: 48px 0 12px; color: var(--teal); font-size: 10px; letter-spacing: .25em; text-transform: uppercase; }
+.ending-detail { margin-top: 18px; color: var(--dim); font-size: 17px; }
+.ending-farewell { margin: 90px 0 30px; font-size: clamp(38px, 6vw, 66px); }
+.ending-panel { display: flex; flex-direction: column; align-items: center; }
+.ending-roll-viewport.reduced-motion { inset: 20px 0 80px; overflow-y: auto; }
+.reduced-motion .ending-roll { position: static; transform: none; }
+#endingContinue { position: absolute; bottom: 18px; }

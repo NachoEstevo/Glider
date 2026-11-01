@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { worldHeight, WORLD_RADIUS, CITIES, LANDMARKS } from '../world/worldHeight.js';
+import { ObstacleAvoidance } from './obstacleAvoidance.js';
 
 // Calm arcade flight: coordinated turns (yaw rate from bank), eased climb, a floor kept
 // above terrain and roofs, and an autopilot that wanders between cities and islands
@@ -11,7 +12,7 @@ const MAX_BANK = THREE.MathUtils.degToRad(38);
 const damp = (a, b, rate, dt) => a + (b - a) * (1 - Math.exp(-rate * dt));
 
 export class Flight {
-  constructor({ start = new THREE.Vector3(0, 70, 0), heading = 0.6, obstacleTop = () => -Infinity } = {}) {
+  constructor({ start = new THREE.Vector3(0, 70, 0), heading = 0.6, obstacleTop = () => -Infinity, terrain = worldHeight } = {}) {
     this.pos = start.clone();
     this.heading = heading;        // radians, 0 = +z
     this.bank = 0;
@@ -24,6 +25,9 @@ export class Flight {
     this.idle = 0;                 // seconds without pilot input
     this.autopilot = true;
     this.obstacleTop = obstacleTop;
+    this.terrain = terrain;
+    this.clearanceAge = Infinity;
+    this.avoidance = new ObstacleAvoidance(terrain, obstacleTop);
     this.waypoint = new THREE.Vector2(start.x, start.z);
     this.speedScale = 1;           // intro cutscene throttles this
     this._pickWaypoint();
@@ -52,6 +56,16 @@ export class Flight {
   }
 
   update(dt) {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    // Bound integration steps so a slow frame cannot tunnel through a roof.
+    while (dt > 0) {
+      const step = Math.min(dt, 0.1);
+      this._updateStep(step);
+      dt -= step;
+    }
+  }
+
+  _updateStep(dt) {
     this.time += dt;
     const inp = this.input;
     const active = Math.abs(inp.steer) > 0.02 || Math.abs(inp.climb) > 0.02 || inp.boost;
@@ -77,6 +91,16 @@ export class Flight {
       steer = THREE.MathUtils.lerp(steer, THREE.MathUtils.clamp(-err * 1.5, -1, 1), k);
     }
 
+    this.clearanceAge += dt;
+    if (this.clearanceAge >= 0.1) {
+      this.clearance = this.avoidance.sample(this.pos, this.heading, this.speed, this.clearanceAge);
+      this.clearanceAge = 0;
+    }
+    const clearance = this.clearance;
+    this.avoidanceAssist = clearance.steer;
+    // Pilot input can resist the assist; it retains limited authority.
+    steer = THREE.MathUtils.clamp(steer + clearance.steer, -1, 1);
+
     // ease the stick itself: keys are all-or-nothing, the craft should not be
     this.stick ??= { steer: 0, climb: 0 };
     steer = this.stick.steer = damp(this.stick.steer, steer, 2.2, dt);
@@ -96,19 +120,36 @@ export class Flight {
     this.heading -= yawRate * dt;
 
     // altitude: climb input sets vertical speed, with floor/ceiling
-    const ground = Math.max(worldHeight(this.pos.x, this.pos.z), 0, this.obstacleTop(this.pos.x, this.pos.z));
-    const ahead = this.forward().multiplyScalar(this.speed * 2.5).add(this.pos);
-    const groundAhead = Math.max(worldHeight(ahead.x, ahead.z), 0, this.obstacleTop(ahead.x, ahead.z));
-    const floor = Math.max(ground, groundAhead) + MIN_ALT;
+    let nearTop = 0, nearHazard = false;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    for (const d of [0, Math.max(22, this.speed * 0.7)]) {
+      for (const lateral of [-14, -7, 0, 7, 14]) {
+        const x = this.pos.x + fx * d + fz * lateral;
+        const z = this.pos.z + fz * d - fx * lateral;
+        const terrain = this.terrain(x, z), roof = this.obstacleTop(x, z);
+        nearTop = Math.max(nearTop, terrain, roof);
+        if (terrain > -1 || roof > -1) nearHazard = true;
+      }
+    }
+    // Keep low flight for clear water; rise early for terrain and nearby roofs.
+    const floor = clearance.water ? 6.9 : Math.max(nearTop, clearance.terrainAhead) + MIN_ALT;
     let vs = climb * 14;
-    if (this.pos.y < floor + 6) vs = Math.max(vs, (floor + 6 - this.pos.y) * 1.2);
+    const recoveryHeight = floor + (clearance.water ? 0 : 6);
+    if (this.pos.y < recoveryHeight) vs = Math.max(vs, (recoveryHeight - this.pos.y) * 1.2);
     if (this.pos.y > MAX_ALT) vs = Math.min(vs, (MAX_ALT - this.pos.y) * 0.8);
     this.vSpeed = damp(this.vSpeed, vs, 1.1, dt);
-    this.pitch = damp(this.pitch, Math.atan2(this.vSpeed, this.speed) * 0.9, 1.9, dt);
 
     const f = this.forward();
     this.pos.addScaledVector(f, this.speed * dt);
-    this.pos.y = Math.max(this.pos.y + this.vSpeed * dt, ground + 4);
+    const destinationTerrain = this.terrain(this.pos.x, this.pos.z);
+    const destinationRoof = this.obstacleTop(this.pos.x, this.pos.z);
+    const destinationGround = Math.max(destinationTerrain, 0, destinationRoof);
+    const destinationHazard = destinationTerrain > -1 || destinationRoof > -1;
+    const floorLimit = nearHazard || destinationHazard ? Math.max(destinationGround, nearTop) + MIN_ALT : 6.9;
+    const nextY = this.pos.y + this.vSpeed * dt;
+    this.pos.y = Math.max(nextY, floorLimit);
+    if (nextY <= floorLimit && this.vSpeed < 0) this.vSpeed = 0;
+    this.pitch = damp(this.pitch, Math.atan2(this.vSpeed, this.speed) * 0.9, 1.9, dt);
     this.distance += this.speed * dt;
   }
 

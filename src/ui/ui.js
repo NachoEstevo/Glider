@@ -10,8 +10,14 @@ export class UI {
       subs: $('subs'), toast: $('toast'), toastIdx: $('toastIdx'), toastTitle: $('toastTitle'), toastArtist: $('toastArtist'),
       hud: $('hud'), hudFuel: $('hudFuel'), hudAlt: $('hudAlt'), hudClock: $('hudClock'), hudPlane: $('hudPlane'), hudMode: $('hudMode'),
       ending: $('ending'), endingFade: $('endingFade'), flyAgain: $('flyAgain'), endingCredits: $('endingCredits'),
+      endingPanel: $('endingPanel'), endingRoll: $('endingRoll'), endingRollViewport: $('endingRollViewport'),
+      endingContinue: $('endingContinue'), endingTracks: $('endingTracks'),
       help: $('help'), info: $('infoBtn'), credits: $('credits'), creditsClose: $('creditsClose'), creditsTracks: $('creditsTracks'),
     };
+    this.musicRecovery = document.createElement('button');
+    this.musicRecovery.type = 'button';
+    this.musicRecovery.className = 'music-recovery hidden';
+    document.body.append(this.musicRecovery);
     this.flightUi = false;   // HUD + info button allowed (after the intro)
     this.hidden = false;     // H key
     this._toastTimer = 0;
@@ -23,11 +29,20 @@ export class UI {
     this.el.credits.onclick = (e) => { if (e.target === this.el.credits) this.toggleCredits(false); };
   }
 
+  setMusicState(state, onResume) {
+    const visible = !this._endingShown && ['blocked', 'error', 'paused'].includes(state);
+    this.musicRecovery.textContent = state === 'error' ? 'Retry music' : 'Resume music';
+    this.musicRecovery.onclick = visible ? onResume : null;
+    show(this.musicRecovery, visible);
+  }
+
   setEndingFade(amount) {
     this.el.endingFade.style.opacity = Math.max(0, Math.min(1, amount));
   }
 
   showEnding(onReplay) {
+    this._endingShown = true;
+    show(this.musicRecovery, false);
     this.flightUi = false;
     this._applyVisibility();
     show(this.el.help, false);
@@ -38,7 +53,34 @@ export class UI {
     document.body.classList.remove('no-cursor');
     this.el.flyAgain.onclick = onReplay;
     show(this.el.ending, true);
-    this.el.flyAgain.focus({ preventScroll: true });
+    show(this.el.endingPanel, false);
+    show(this.el.endingRollViewport, true);
+    const finish = () => {
+      document.removeEventListener('visibilitychange', syncVisibility);
+      show(this.el.endingRollViewport, false);
+      show(this.el.endingContinue, false);
+      show(this.el.endingPanel, true);
+      this.el.flyAgain.focus({ preventScroll: true });
+    };
+    let animation;
+    const syncVisibility = () => {
+      if (!animation) return;
+      if (document.hidden) animation.pause(); else animation.play();
+    };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.el.endingRollViewport.classList.add('reduced-motion');
+      show(this.el.endingContinue, true);
+      this.el.endingContinue.onclick = finish;
+      this.el.endingRollViewport.focus({ preventScroll: true });
+    } else {
+      animation = this.el.endingRoll.animate([
+        { transform: 'translateY(100dvh)' },
+        { transform: 'translateY(-100%)' },
+      ], { duration: 42000, easing: 'linear', fill: 'forwards' });
+      document.addEventListener('visibilitychange', syncVisibility);
+      syncVisibility();
+      animation.finished.then(finish);
+    }
   }
 
   setLoading(text) {
@@ -117,6 +159,7 @@ export class UI {
 
   fillCredits(tracks) {
     this.el.creditsTracks.innerHTML = '';
+    this.el.endingTracks.innerHTML = '';
     for (const t of tracks) {
       const li = document.createElement('li');
       li.append(`${t.title} `);
@@ -124,6 +167,9 @@ export class UI {
       a.textContent = `— ${t.artist}`;
       li.append(a);
       this.el.creditsTracks.append(li);
+      const line = document.createElement('p');
+      line.textContent = `${t.title} — ${t.artist}`;
+      this.el.endingTracks.append(line);
     }
   }
 

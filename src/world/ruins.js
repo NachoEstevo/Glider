@@ -135,7 +135,7 @@ export function planRuins() {
   }
   // boats stay out of the buildings
   const clear = props.filter((p) => p.arch !== 'boat' || topAt(p.x, p.z) === -Infinity);
-  return { items, props: clear, topAt, roofSpots };
+  return { items, props: clear, topAt, flightTopAt: createFlightObstacleIndex(items), roofSpots };
 }
 
 // base centre and orientation of box i (leaning towers tilt about their base)
@@ -152,6 +152,40 @@ export function ruinFrame(items, i, p, q) {
     _up.set(0, 1, 0).applyQuaternion(_tilt);
     p.set(it.x, items[i - 1].y, it.z).addScaledVector(_up, items[i - 1].h);
   }
+}
+
+// Navigation uses conservative world-space bounds, including the full height of open
+// and collapsed ruins. Shore geometry keeps its separate, narrower roof lookup.
+export function createFlightObstacleIndex(items) {
+  const CELL = 64, grid = new Map();
+  const key = (x, z) => `${x},${z}`;
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), corner = new THREE.Vector3();
+  for (let index = 0; index < items.length; index++) {
+    const it = items[index];
+    ruinFrame(items, index, p, q);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, top = -Infinity;
+    for (const x of [-it.w / 2, it.w / 2]) for (const y of [0, it.h]) for (const z of [-it.d / 2, it.d / 2]) {
+      corner.set(x, y, z).applyQuaternion(q).add(p);
+      minX = Math.min(minX, corner.x); maxX = Math.max(maxX, corner.x);
+      minZ = Math.min(minZ, corner.z); maxZ = Math.max(maxZ, corner.z);
+      top = Math.max(top, corner.y);
+    }
+    if (top <= 0) continue;
+    const bounds = { minX, maxX, minZ, maxZ, top };
+    for (let x = Math.floor(minX / CELL); x <= Math.floor(maxX / CELL); x++)
+      for (let z = Math.floor(minZ / CELL); z <= Math.floor(maxZ / CELL); z++) {
+        const k = key(x, z);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(bounds);
+      }
+  }
+  return (x, z) => {
+    const candidates = grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) || [];
+    let top = -Infinity;
+    for (const b of candidates)
+      if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) top = Math.max(top, b.top);
+    return top;
+  };
 }
 
 // patchCustom: terrain.patchCustom (underwater light, caustics, fog + our surface)

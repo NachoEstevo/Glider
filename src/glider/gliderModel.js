@@ -367,6 +367,14 @@ export function createGlider() {
     engines.push(e);
   }
 
+  // Invisible contact anchors inherit the complete body and root transforms.
+  const wingTips = [-1, 1].map((side) => {
+    const tip = new THREE.Object3D();
+    tip.position.set(side * SPAN, wingY(SPAN) - 0.02, (lead(SPAN) + trail(SPAN)) * 0.5);
+    body.add(tip);
+    return tip;
+  });
+
   // winglets, canted out
   const wlGeo = wingletGeometry();
   for (const side of [-1, 1]) {
@@ -408,7 +416,7 @@ export function createGlider() {
 
   let t = 0, prevBank = 0, prevPitch = 0;
   return {
-    root, body,
+    root, body, wingTips,
     radius: 13,
     update(dt, throttle, flight, enginePower = 1) {
       t += dt;

@@ -3,12 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Glider — A quiet flight</title>
+  <title>Glider</title>
   <meta name="description" content="A quiet flight over a drowned world." />
   <meta name="theme-color" content="#030405" />
-  <meta property="og:title" content="Glider — A quiet flight" />
+  <meta property="og:title" content="Glider" />
   <meta property="og:description" content="Follow the music over a drowned world, where nature reclaims the cities below." />
-  <meta property="og:url" content="https://glider.nachoestevo.com" />
+  <meta property="og:url" content="https://glider.nachoestevo.com/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://glider.nachoestevo.com/og-glider.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Glider flying over a flooded world" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="canonical" href="https://glider.nachoestevo.com/" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -108,12 +115,30 @@
 
   <div id="endingFade" class="ending-fade" aria-hidden="true"></div>
   <section id="ending" class="layer ending hidden" aria-labelledby="endingTitle">
+    <div id="endingRollViewport" class="ending-roll-viewport" tabindex="-1" aria-label="Flight credits">
+      <div id="endingRoll" class="ending-roll">
+        <p class="start-ko">활공</p>
+        <h2>Glider</h2>
+        <p class="ending-role mono">Created by</p><p>Ignacio Estevo</p>
+        <p class="ending-role mono">Music</p><div id="endingTracks"></div>
+        <p class="ending-detail">Mix and curation by daymoon playlist</p>
+        <p class="ending-role mono">Art direction</p><p>Inspired by Yishu 5</p>
+        <p class="ending-role mono">Water</p><p>Ultra-Water by Humpalumps</p>
+        <p class="ending-role mono">Textures and foliage</p><p>ambientCG · Poly Haven</p>
+        <p class="ending-role mono">Voices and sound effects</p><p>ElevenLabs</p>
+        <p class="ending-role mono">Reference concepts</p><p>OpenAI image generation via Codex</p>
+        <p class="ending-farewell">Thank you for flying.</p>
+      </div>
+    </div>
+    <button id="endingContinue" class="ending-credits mono hidden" type="button">Continue</button>
+    <div id="endingPanel" class="ending-panel hidden">
     <p class="start-ko">활공</p>
     <h2 id="endingTitle">Thank you for flying.</h2>
     <p class="ending-note">Until the next horizon.</p>
     <div class="ending-actions">
       <button id="flyAgain" class="begin mono" type="button">Fly again</button>
       <button id="endingCredits" class="ending-credits mono" type="button">Credits</button>
+    </div>
     </div>
   </section>
 
