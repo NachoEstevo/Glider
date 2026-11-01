@@ -8,7 +8,7 @@ output
 source
 art
 tools
-licenses
+/licenses
 .claude
 .playwright-cli
 .github
