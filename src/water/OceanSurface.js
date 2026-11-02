@@ -161,7 +161,7 @@ Shore shoreWaves(vec2 xz, vec4 sh) {
   Shore o = Shore(vec3(0.0), vec2(0.0), 0.0, vec4(0.0), 0.0, vec2(0.0), 0.0, 0.0);
   float depth = -sh.x, sdf = sh.y;
   float gl = length(sh.zw);
-  float env = smoothstep(180.0, 70.0, sdf) * smoothstep(0.35, 0.8, gl) * smoothstep(-0.9, 0.5, depth);
+  float env = smoothstep(115.0, 45.0, sdf) * smoothstep(0.35, 0.8, gl) * smoothstep(-0.9, 0.5, depth);
   if (env <= 0.0 || uShoreWave.x <= 0.0) return o;
   vec4 tr = travelSample(xz);
   vec2 dir = shoreDir(sh, tr);
@@ -173,6 +173,10 @@ Shore shoreWaves(vec2 xz, vec4 sh) {
   float amax = 0.42 * max(depth, 0.0) + 0.14;
   float noisePhase = shoreNoisePhase(xz);
   float group = shoreGroup(xz);
+  // Break up whitewater along a crest, rather than drawing an unbroken contour
+  // around every piece of land. The slow drift avoids a fixed stippled pattern.
+  float patches = vnoise(xz * 0.018 + vec2(uTime * 0.008, -uTime * 0.006));
+  patches = smoothstep(0.38, 0.68, patches);
   float pinch = 0.85;   // total horizontal compression allowed (Jacobian stays > 0.15)
   for (int i = 0; i < 2; i++) {
     float lambda = uShoreWave.y * (i == 0 ? 1.0 : 0.61);
@@ -204,14 +208,14 @@ Shore shoreWaves(vec2 xz, vec4 sh) {
     o.slope += dir * (a * k * P * cp * s / max(1.0 - qak * cos(ph) + 3.0 * pitch * k * c5 * s, 0.2));
     // whitewater: on the crest and trailing behind it once the wave is near breaking
     float psi = mod(ph + PI, 2.0 * PI) - PI;
-    float f = breaking * smoothstep(-0.45, 0.0, psi) * exp(-max(psi, 0.0) * 0.8);
+    float f = breaking * patches * smoothstep(-0.45, 0.0, psi) * exp(-max(psi, 0.0) * 0.8);
     o.foam += f;
     if (i == 0) {
       o.wave0 = vec4(a, k, w, ph);
       o.breaking0 = breaking;
-      o.lip = breaking * c5 * smoothstep(0.6, -0.2, psi);
+      o.lip = breaking * patches * c5 * smoothstep(0.6, -0.2, psi);
       // (the lace outlives single crests: no peeling, or it would pop between waves)
-      o.residual = smoothstep(0.18, 0.4, rel) * (0.3 + 0.45 * exp(-mod(ph, 2.0 * PI) * 0.4));
+      o.residual = patches * smoothstep(0.18, 0.4, rel) * (0.3 + 0.45 * exp(-mod(ph, 2.0 * PI) * 0.4));
     }
   }
   return o;

@@ -8,9 +8,14 @@ import * as THREE from 'three';
 //   skeleton  just the frame: columns and broken floor slabs (mostly the drowned ones)
 // Attributes for the shader (ruinMaterial.js): aLocal / aLocalN (position and normal in the
 // building frame), aInfo (xyz: building origin, a stable seed; w: kind 0 facade, 1 concrete,
-// 2 rusted metal, 3 painted steel: containers, gondolas, 4 lime-washed masonry).
+// 2 rusted metal, 3 painted steel, 4 lime-washed masonry, 5 surviving glass).
 const FLOOR = 3.6;
-export const KIND = { facade: 0, concrete: 1, metal: 2, container: 3, paint: 4 };
+export const KIND = { facade: 0, concrete: 1, metal: 2, container: 3, paint: 4, glass: 5 };
+
+// Exposed structural masonry and concrete thicken modestly with their height.
+function wallThickness(height, w, d) {
+  return Math.min(0.65, 0.4 + height * 0.015, w / 10, d / 10);
+}
 
 function rng(seed) {
   return () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -251,12 +256,13 @@ function windowReveals(B, w, d, h, yMin) {
 // columns, floor slabs (partial, some hanging off an edge) and shards of facade
 function skeleton(B, rand, w, d, y0, y1, full) {
   const nx = Math.max(2, Math.round(w / 6.5) + 1), nz = Math.max(2, Math.round(d / 6.5) + 1);
-  const col = 0.32;
+  const col = 0.32, supports = [];
   for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
     if (rand() < 0.12) continue;
     const x = -w / 2 + 0.5 + (i / (nx - 1)) * (w - 1), z = -d / 2 + 0.5 + (k / (nz - 1)) * (d - 1);
     const top = y0 + (y1 - y0) * (full ? 0.75 + rand() * 0.25 : 0.25 + rand() * 0.75);
     B.box(x - col, y0, z - col, x + col, top, z + col, KIND.concrete);
+    supports.push({ x, z, top });
     if (rand() < 0.3) B.box(x - 0.04, top, z - 0.04, x + 0.04, top + 0.8, z + 0.04, KIND.metal);   // rebar
   }
   let k = 0;
@@ -281,13 +287,53 @@ function skeleton(B, rand, w, d, y0, y1, full) {
     if (rand() < (full ? 0.6 : 0.35)) continue;
     const hgt = FLOOR * (1 + Math.floor(rand() * 3)), yb = y0 + FLOOR * Math.floor(rand() * Math.max(1, (y1 - y0 - hgt) / FLOOR));
     const frac = 0.25 + rand() * 0.5, off = (rand() - 0.5) * (1 - frac);
-    if (s < 2) {
-      const z = s ? d / 2 - 0.2 : -d / 2, x0 = (off - frac / 2) * w, x1 = (off + frac / 2) * w;
-      B.box(x0, yb, z, x1, yb + hgt, z + 0.2, KIND.facade);
-    } else {
-      const x = s === 3 ? w / 2 - 0.2 : -w / 2, z0 = (off - frac / 2) * d, z1 = (off + frac / 2) * d;
-      B.box(x, yb, z0, x + 0.2, yb + hgt, z1, KIND.facade);
-    }
+    const wall = wallThickness(hgt, w, d);
+    const along = s < 2 ? w : d, depth = s < 2 ? d : w;
+    const raw0 = (off - frac / 2) * along, raw1 = (off + frac / 2) * along;
+    const edge = (s === 1 || s === 3) ? depth / 2 - wall : -depth / 2;
+    const side = (s === 1 || s === 3) ? depth / 2 - 0.5 : -depth / 2 + 0.5;
+    // Only retain a fragment if an emitted perimeter column reaches its top
+    // and overlaps the wall's thickness. Missing columns must not leave panels floating.
+    const candidates = supports.filter(p => {
+      const cross = s < 2 ? p.z : p.x;
+      return Math.abs(cross - side) < 1e-6 && cross + col >= edge && cross - col <= edge + wall && p.top >= yb + hgt;
+    });
+    if (yb + hgt > y1 || !candidates.length) continue;
+    candidates.sort((a, b) => Math.abs((s < 2 ? a.x : a.z) - raw0) - Math.abs((s < 2 ? b.x : b.z) - raw0));
+    const anchor = s < 2 ? candidates[0].x : candidates[0].z, length = raw1 - raw0;
+    const right = along / 2 - anchor >= length || anchor + along / 2 < length;
+    const a0 = right ? anchor : Math.max(-along / 2, anchor - length);
+    const a1 = right ? Math.min(along / 2, anchor + length) : anchor;
+    const part = (u0, v0, u1, v1) => {
+      if (s < 2) B.box(u0, v0, edge, u1, v1, edge + wall, KIND.concrete, { bottom: true });
+      else B.box(edge, v0, u0, edge + wall, v1, u1, KIND.concrete, { bottom: true });
+    };
+    // At most one complete, floor-aligned opening in a retained fragment. The
+    // concrete around it provides real jambs rather than a clipped window decal.
+    const halfWindow = FLOOR * 0.56 / 2;
+    const firstCell = Math.ceil((a0 + halfWindow + 0.25) / FLOOR - 0.5);
+    const lastCell = Math.floor((a1 - halfWindow - 0.25) / FLOOR - 0.5);
+    const floor = Math.ceil((yb + 0.15) / FLOOR);
+    const win0 = (floor + 0.56 - 0.53 / 2) * FLOOR, win1 = (floor + 0.56 + 0.53 / 2) * FLOOR;
+    if (firstCell <= lastCell && win1 < yb + hgt - 0.15) {
+      const centre = (Math.floor((firstCell + lastCell) / 2) + 0.5) * FLOOR;
+      const left = centre - halfWindow, right = centre + halfWindow;
+      part(a0, yb, a1, win0);
+      // Break one upper corner while retaining the lintel over the opening.
+      const breakAt = a0 + (left - a0) * 0.7;
+      part(a0, win1, breakAt, yb + hgt - Math.min(0.45, (yb + hgt - win1) * 0.5));
+      part(breakAt, win1, a1, yb + hgt);
+      part(a0, win0, left, win1); part(right, win0, a1, win1);
+      // A small deterministic minority retain a pane. Two opposite faces keep
+      // the same shared material and reflect the scene environment from either side.
+      const paneSeed = Math.abs(Math.sin(off * 179.1 + frac * 233.3 + s * 71.9));
+      if (paneSeed > 0.9) {
+        const p = (u, y) => s < 2 ? new THREE.Vector3(u, y, edge + wall / 2) : new THREE.Vector3(edge + wall / 2, y, u);
+        const n = s < 2 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+        B.quad(p(left, win0), p(right, win0), p(right, win1), p(left, win1), n, KIND.glass);
+        B.quad(p(left, win0), p(right, win0), p(right, win1), p(left, win1), n.clone().negate(), KIND.glass);
+      }
+    } else part(a0, yb, a1, yb + hgt);
   }
 }
 
@@ -304,7 +350,7 @@ function rubble(B, rand, cx, cz, r, y, n) {
 // Some buildings have lost contiguous facade panels. Retained floors and a
 // service core give the openings depth while keeping the geometry bounded.
 function openFacade(B, w, d, h, yMin, family, seed) {
-  const hw = w / 2, hd = d / 2, wall = Math.min(0.4, w / 10, d / 10);
+  const hw = w / 2, hd = d / 2, wall = wallThickness(h, w, d);
   const faceKind = family === 2 ? KIND.concrete : KIND.facade;
   // Keep two solid elevations, with a second opened elevation on selected frames.
   const second = family === 1;
@@ -315,8 +361,8 @@ function openFacade(B, w, d, h, yMin, family, seed) {
   const floors = 2 + (Math.floor(seed / 11) % 3);
   const high = Math.min(h, low + FLOOR * floors);
   const panel = (side, u0, y0, u1, y1, kind) => {
-    if (side === 0) B.box(u0, y0, hd - wall, u1, y1, hd, kind);
-    else B.box(hw - wall, y0, u0, hw, y1, u1, kind);
+    if (side === 0) B.box(u0, y0, hd - wall, u1, y1, hd, kind, { bottom: y0 > 0 });
+    else B.box(hw - wall, y0, u0, hw, y1, u1, kind, { bottom: y0 > 0 });
   };
   const facade = (side) => {
     const half = side === 0 ? hw : hd;

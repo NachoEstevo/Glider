@@ -8,7 +8,7 @@ import * as THREE from 'three';
 const VERT_PARS = /* glsl */`
 attribute vec3 aLocal;   // metres in the building frame, y up from its base
 attribute vec3 aLocalN;
-attribute vec4 aInfo;    // xyz: building origin (seed), w: kind (0 facade, 1 concrete, 2 metal, 3 paint)
+attribute vec4 aInfo;    // xyz: building origin (seed), w: surface kind
 varying vec3 vLocalP;
 varying vec3 vLocalN;
 flat varying vec3 vInstO;
@@ -112,6 +112,12 @@ const ALBEDO = /* glsl */`
     float mossMask = damp * smoothstep(0.56, 0.77, tn(fp * 0.35 + rSeed * 7.0)) * 0.45;
     albedo = mix(albedo, moss * vec3(0.55, 0.65, 0.46), mossMask);
     ruinR = mix(ruinR, 0.95, mossMask);
+  } else if (vKind > 4.5) {
+    // Surviving geometry-backed glass: the physical material reflects the
+    // scene environment with the dielectric Fresnel response.
+    albedo = vec3(0.09, 0.13, 0.15);
+    ruinNt = vec3(0.5, 0.5, 1.0);
+    ruinR = 0.08;
   } else if (vKind > 3.5) {
     // lime-washed masonry with a red band (the lighthouse): flaking, salt-stained
     vec3 conc = atlas(uRoofC, fp / 4.0, 1.0).rgb;
@@ -181,8 +187,10 @@ const ALBEDO = /* glsl */`
   float algae = smoothstep(0.6, -1.5, vWPos.y + nS * 1.5);
   // algae and silt over what is there, so the texture still reads through
   vec3 algaeC = mix(vec3(0.11, 0.17, 0.09), vec3(0.3, 0.32, 0.18), nC) * (0.75 + 0.5 * tn(fp * 1.3 + 2.0));
-  albedo = mix(albedo, mix(albedo * vec3(0.7, 0.85, 0.65), algaeC, 0.55 + 0.35 * nS), algae * 0.9);
-  albedo *= mix(1.0, 0.7, smoothstep(0.9, 0.1, vWPos.y) * smoothstep(-0.6, 0.2, vWPos.y));
+  if (vKind < 4.5) {
+    albedo = mix(albedo, mix(albedo * vec3(0.7, 0.85, 0.65), algaeC, 0.55 + 0.35 * nS), algae * 0.9);
+    albedo *= mix(1.0, 0.7, smoothstep(0.9, 0.1, vWPos.y) * smoothstep(-0.6, 0.2, vWPos.y));
+  }
   diffuseColor.rgb = albedo;
 `;
 const ROUGH = /* glsl */`

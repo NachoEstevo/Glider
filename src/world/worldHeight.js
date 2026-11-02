@@ -78,8 +78,9 @@ export function worldHeight(x, z) {
   const bar = 1 - Math.abs(fbm(wx * 0.0018 + 5, wz * 0.0018 + 9, 3, 61));
   h = Math.max(h, mix(-11, -0.9, smooth(0.965, 0.995, bar) * smooth(0.1, 0.4, fbm(x * 0.001, z * 0.001, 2, 62) + 0.3)) * (1 - city) - 9 * city);
 
-  // gentle beaches above the waterline
-  if (h > 0 && h < 4) h *= 0.55 + 0.11 * h;
+  // Soften the waterline without flattening small islands into broad sand plates.
+  // The multiplier reaches one at 4 m, keeping the profile continuous there.
+  if (h > 0 && h < 4) h *= mix(0.72, 1, smooth(0, 4, h));
 
   // landmark ground: the lighthouse's rock, the stadium's flooded pitch
   for (const l of LANDMARKS) {
