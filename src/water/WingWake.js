@@ -6,7 +6,7 @@ import { worldHeight } from '../world/worldHeight.js';
 // never bridge a gap in contact, and the GPU follows the same displaced water as
 // the ocean without a synchronous height readback.
 const SEGMENTS = 64;
-const LIFE = 1.15;
+const LIFE = 1.5;
 const WIDTH = 0.19;
 const IMPACT_LIFE = 1.5;
 const IMPACT_INTERVAL = 0.2;
@@ -17,35 +17,45 @@ in float aStrength;
 in vec2 aSpread;
 out float vAlpha;
 out vec2 vUv;
+out vec2 vXZ;
 void main() {
-  if (aStrength <= 0.0 || aAge >= 1.15) { vAlpha = 0.0; vUv = uv; gl_Position = vec4(2.0); return; }
-  vec2 xz = position.xz + aSpread * aAge * 0.18;
+  if (aStrength <= 0.0 || aAge >= 1.5) { vAlpha = 0.0; vUv = uv; vXZ = position.xz; gl_Position = vec4(2.0); return; }
+  vec2 xz = position.xz + aSpread * aAge * 1.35;
   float water = waterAt(xz, vec3(0.0)).y;
   vAlpha = aStrength * pow(max(0.0, 1.0 - aAge / ${LIFE.toFixed(2)}), 1.5);
   vUv = uv;
+  vXZ = xz;
   gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, water + 0.08, xz.y, 1.0);
 }`;
 const FRAG = /* glsl */`
 precision highp float;
+uniform sampler2D uFoamTex;
 in float vAlpha;
 in vec2 vUv;
+in vec2 vXZ;
 out vec4 fragColor;
 void main() {
-  float edge = 1.0 - smoothstep(0.35, 1.0, abs(vUv.x * 2.0 - 1.0));
-  fragColor = vec4(0.88, 0.96, 1.0, vAlpha * edge * 0.5);
+  // Two fine broken lines leave dark water between them as the wake opens.
+  float edge = abs(vUv.x * 2.0 - 1.0);
+  float bands = smoothstep(0.30, 0.65, edge) * (1.0 - smoothstep(0.82, 1.0, edge));
+  float texture_ = texture(uFoamTex, vXZ * 0.32).r;
+  fragColor = vec4(0.88, 0.96, 1.0, vAlpha * bands * (0.32 + 0.30 * texture_));
 }`;
 const SPRAY_VERT = /* glsl */`
 ${WATER_GLSL}
 in float aAge;
 in float aStrength;
+in vec2 aSpread;
 out float vAlpha;
 void main() {
-  if (aStrength <= 0.0 || aAge >= 0.45) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0); return; }
-  float water = waterAt(position.xz, vec3(0.0)).y;
+  if (aStrength <= 0.0 || aAge >= 0.65) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0); return; }
   float t = aAge;
-  vAlpha = aStrength * max(0.0, 1.0 - t / 0.45);
-  vec4 view = viewMatrix * vec4(position.x, water + 0.12 + t * 0.65, position.z, 1.0);
-  gl_PointSize = clamp(20.0 / max(1.0, -view.z), 1.0, 3.0);
+  vec2 xz = position.xz + aSpread * t * 1.7;
+  float water = waterAt(xz, vec3(0.0)).y;
+  vAlpha = aStrength * pow(max(0.0, 1.0 - t / 0.65), 1.3);
+  float arc = max(0.0, 1.5 * t - 2.2 * t * t);
+  vec4 view = viewMatrix * vec4(xz.x, water + 0.12 + arc, xz.y, 1.0);
+  gl_PointSize = clamp(30.0 / max(1.0, -view.z), 1.0, 4.0);
   gl_Position = projectionMatrix * view;
 }`;
 const SPRAY_FRAG = /* glsl */`
@@ -83,7 +93,10 @@ export class WingWake {
     this.geo.setIndex(indices);
     const uniforms = { ...surface.uniforms };
     this.mesh = new THREE.Mesh(this.geo, new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, glslVersion: THREE.GLSL3, transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide }));
-    this.spray = new THREE.Points(this.geo, new THREE.ShaderMaterial({ uniforms, vertexShader: SPRAY_VERT, fragmentShader: SPRAY_FRAG, glslVersion: THREE.GLSL3, transparent: true, depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    // Non-indexed points share the strip attributes without drawing indexed duplicates.
+    this.sprayGeo = new THREE.BufferGeometry();
+    for (const name of ['position', 'aAge', 'aStrength', 'aSpread']) this.sprayGeo.setAttribute(name, this.geo.getAttribute(name));
+    this.spray = new THREE.Points(this.sprayGeo, new THREE.ShaderMaterial({ uniforms, vertexShader: SPRAY_VERT, fragmentShader: SPRAY_FRAG, glslVersion: THREE.GLSL3, transparent: true, depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.mesh.frustumCulled = this.spray.frustumCulled = false;
     this.group.add(this.mesh, this.spray);
     this.tips = [new THREE.Vector3(), new THREE.Vector3()];

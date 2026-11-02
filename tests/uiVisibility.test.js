@@ -7,7 +7,7 @@ function flightUi() {
   ui.flightUi = false;
   ui.hidden = false;
   ui.helpHidden = false;
-  ui.el = Object.fromEntries(['hud', 'info', 'help'].map(name => {
+  ui.el = Object.fromEntries(['hud', 'info', 'help', 'audioControls'].map(name => {
     const classes = new Set(['hidden']);
     return [name, { classList: {
       toggle(value, force) { if (force) classes.add(value); else classes.delete(value); },

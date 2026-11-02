@@ -61,12 +61,19 @@ export function planRuins() {
         : [[-0.25, -0.25, 0.5, 0.5], [0.25, -0.25, 0.5, 0.5], [-0.25, 0.25, 0.5, 0.5], [0.25, 0.25, 0.5, 0.5]];
       for (const [ox, oz, sx, sz] of lots) {
         if (rand() < 0.18) continue;                       // empty lot / long gone
-        const w = BLOCK * sx * (0.55 + rand() * 0.3), d = BLOCK * sz * (0.55 + rand() * 0.3);
+        let w = BLOCK * sx * (0.55 + rand() * 0.3), d = BLOCK * sz * (0.55 + rand() * 0.3);
         const px = cx + (ox * ca + oz * sa) * BLOCK, pz = cz + (-ox * sa + oz * ca) * BLOCK;
         const base = worldHeight(px, pz) - 1.5;
         let h = buildingHeight(rand, mask);
         const lean = h > 25 && rand() < 0.35 ? (rand() - 0.5) * 0.35 : (rand() - 0.5) * 0.03;
         const it = { x: px, z: pz, y: base, w, d, h, yaw: angle, lean, leanDir: rand() * Math.PI * 2, ...archetype(rand, base + h, w, d, h) };
+        // Shape families stay within their original lot and do not consume random draws.
+        // Their existing height distinguishes towers from the lower city fabric.
+        const shape = it.seed % 4;
+        if (shape === 0) w *= 0.72;
+        else if (shape === 1) d *= 0.72;
+        else if (shape === 2 && h > 18) { w *= 0.8; d *= 0.8; }
+        it.w = w; it.d = d;
         items.push(it);
         // setbacks on taller intact buildings
         if (h > 18 && it.arch === 'intact' && rand() < 0.6) {

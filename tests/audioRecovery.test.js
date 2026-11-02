@@ -168,3 +168,35 @@ test('initial fallback hidden while buffering waits for a synchronized user retr
   assert.equal(s.started, false); assert.equal(s.music.plays, 1);
   await s.resumeMusic(37); assert.equal(s.music.currentTime, 37); assert.equal(s.started, true);
 });
+
+test('volume preference survives reload and mute restores the selected level', async t => {
+  const previous = globalThis.localStorage;
+  const values = new Map([['glider.volume', '.35']]);
+  globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  t.after(() => { if (previous === undefined) delete globalThis.localStorage; else globalThis.localStorage = previous; });
+  const { s } = setup();
+  await s.start();
+  assert.equal(s.master.gain.value, .35);
+  let target;
+  s.master.gain.setTargetAtTime = value => { target = value; };
+  s.toggleMute(); assert.equal(target, 0);
+  s.toggleMute(); assert.equal(target, .35);
+  s.toggleMute(); s.setVolume(.6);
+  assert.equal(s.muted, false);
+  assert.equal(target, .6);
+  assert.equal(setup().s.volume, .6);
+  s.finish(); target = undefined; s.setVolume(.4);
+  assert.equal(target, undefined, 'volume must not interrupt the ending fade');
+});
+
+test('volume accepts zero, clamps its range and tolerates unavailable storage', async t => {
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = { getItem() { throw new Error('Unavailable'); }, setItem() { throw new Error('Unavailable'); } };
+  t.after(() => { if (previous === undefined) delete globalThis.localStorage; else globalThis.localStorage = previous; });
+  const { s } = setup();
+  assert.equal(s.volume, 1);
+  s.setVolume(2); assert.equal(s.volume, 1);
+  s.setVolume(-1); assert.equal(s.volume, 0);
+  s.setVolume(NaN); assert.equal(s.volume, 0);
+  await s.start(); assert.equal(s.master.gain.value, 0);
+});

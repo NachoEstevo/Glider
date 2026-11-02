@@ -62,3 +62,24 @@ test('foam leaves gaps, reuses finite geometry and expires away from the sea', (
   wake.update(2, tips, flight);
   assert.ok(wake.ages.every(v => v >= 1.15 - 1e-6));
 });
+
+test('both wings write opposing finite spread vectors only over open water', () => {
+  const { wake, tips, flight } = fixture();
+  tips[1].position.set(10004, 0.2, 10000);
+  for (let i = 0; i < 20; i++) {
+    tips[0].position.z += 0.5;
+    tips[1].position.z += 0.5;
+    wake.update(1 / 60, tips, flight);
+  }
+  assert.ok(wake.strengths.slice(0, 256).some(v => v > 0));
+  assert.ok(wake.strengths.slice(256).some(v => v > 0));
+  assert.ok(wake.spread.every(Number.isFinite));
+  assert.ok(wake.spread.some(v => v > 0) && wake.spread.some(v => v < 0));
+  assert.equal(wake.sprayGeo.index, null);
+  assert.equal(wake.sprayGeo.attributes.position.count, 512);
+  const blocked = fixture();
+  blocked.flight.obstacleTop = () => 10;
+  for (let i = 0; i < 20; i++) { blocked.tips[0].position.z += 0.5; blocked.wake.update(1 / 60, blocked.tips, blocked.flight); }
+  assert.ok(blocked.wake.strengths.every(v => v === 0));
+  assert.ok(blocked.impacts.every(v => v.w === 0));
+});

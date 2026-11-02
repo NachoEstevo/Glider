@@ -301,6 +301,53 @@ function rubble(B, rand, cx, cz, r, y, n) {
   }
 }
 
+// Some buildings have lost contiguous facade panels. Retained floors and a
+// service core give the openings depth while keeping the geometry bounded.
+function openFacade(B, w, d, h, yMin, family, seed) {
+  const hw = w / 2, hd = d / 2, wall = Math.min(0.4, w / 10, d / 10);
+  const faceKind = family === 2 ? KIND.concrete : KIND.facade;
+  // Keep two solid elevations, with a second opened elevation on selected frames.
+  const second = family === 1;
+  B.box(-hw, 0, -hd, hw, h, -hd + wall, faceKind);
+  B.box(-hw, 0, -hd + wall, -hw + wall, h, hd, KIND.concrete);
+  if (!second) B.box(hw - wall, 0, -hd + wall, hw, h, hd, faceKind);
+  const low = Math.min(h, Math.max(0, Math.ceil(yMin / FLOOR) * FLOOR));
+  const floors = 2 + (Math.floor(seed / 11) % 3);
+  const high = Math.min(h, low + FLOOR * floors);
+  const panel = (side, u0, y0, u1, y1, kind) => {
+    if (side === 0) B.box(u0, y0, hd - wall, u1, y1, hd, kind);
+    else B.box(hw - wall, y0, u0, hw, y1, u1, kind);
+  };
+  const facade = (side) => {
+    const half = side === 0 ? hw : hd;
+    const start = -half + wall, end = half - wall;
+    // Damage occupies one contiguous end of the elevation, not random missing teeth.
+    const fraction = family === 0 ? 0.58 : family === 1 ? 0.76 : 0.46;
+    const openEnd = start + (end - start) * fraction;
+    if (low > 0.01) panel(side, start, 0, end, low, faceKind);
+    if (high < h - 0.01) panel(side, start, high, end, h, faceKind);
+    panel(side, openEnd, low, end, high, faceKind);
+    const bays = family === 0 ? 3 : 2;
+    const bayWidth = (openEnd - start) / bays, pier = Math.max(0.4, Math.min(0.7, bayWidth * 0.12));
+    for (let y = low; y < high - 0.01; y += FLOOR) {
+      const top = Math.min(high, y + FLOOR), sill = Math.min(top, y + (family === 0 ? 0.85 : 0.4)), lintel = Math.max(sill, top - 0.45);
+      panel(side, start, y, openEnd, sill, KIND.concrete);
+      panel(side, start, lintel, openEnd, top, KIND.concrete);
+      for (let i = 0; i <= bays; i++) {
+        const u = start + i * bayWidth;
+        panel(side, Math.max(start, u - pier / 2), sill, Math.min(openEnd, u + pier / 2), lintel, KIND.concrete);
+      }
+    }
+  };
+  facade(0);
+  if (second) facade(1);
+  for (let y = low; y < high - 0.01; y += FLOOR)
+    B.box(-hw + wall, y, -hd + wall, hw - wall, Math.min(y + 0.24, h), hd - wall, KIND.concrete, { bottom: true });
+  // A core and retained roof support the exposed floors and any roof vegetation.
+  B.box(-w * 0.16, 0, -d * 0.18, w * 0.16, h, d * 0.18, KIND.concrete);
+  B.box(-hw, h - 0.25, -hd, hw, h, hd, KIND.concrete, { bottom: true });
+}
+
 // --- buildings --------------------------------------------------------------------------
 
 // a car on the street floor: body, glasshouse, wheels (x across, z along)
@@ -346,11 +393,13 @@ function building(B, it, rand) {
     return;
   }
   const hb = it.hb;
-  B.box(-w / 2, 0, -d / 2, w / 2, hb, d / 2, KIND.facade);
-  if (it.y + hb > 1) windowReveals(B, w, d, hb, -it.y);
+  const exposed = it.arch === 'intact' && !it.onTop && w > 10 && d > 10 && it.y + hb > 8 && (it.seed % 3 !== 0);
+  if (exposed) openFacade(B, w, d, hb, -it.y, Math.floor(it.seed / 3) % 3, it.seed);
+  else B.box(-w / 2, 0, -d / 2, w / 2, hb, d / 2, KIND.facade);
+  if (!exposed && it.y + hb > 1) windowReveals(B, w, d, hb, -it.y);
   if (it.ledge) ledges(B, w, d, 0, hb, it.ledge);
   if (it.balc) balconies(B, rand, w, d, hb, it.balcSide);
-  if (it.y + hb > 1) facadeClutter(B, rand, w, d, hb, -it.y);   // only what stands clear of the sea
+  if (!exposed && it.y + hb > 1) facadeClutter(B, rand, w, d, hb, -it.y);   // only what stands clear of the sea
   if (it.arch === 'collapsed') {
     skeleton(B, rand, w, d, hb, h, false);
     rubble(B, rand, (rand() - 0.5) * w * 0.4, (rand() - 0.5) * d * 0.4, Math.min(w, d) * 0.3, hb, 3 + Math.floor(rand() * 4));

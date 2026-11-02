@@ -18,6 +18,12 @@ export class Soundtrack {
     this.trackIndex = -1;
     this.onTrack = () => {};
     this.muted = false;
+    this.volume = 1;
+    try {
+      const saved = localStorage.getItem('glider.volume');
+      if (saved !== null && saved.trim() !== '' && Number.isFinite(Number(saved)))
+        this.volume = Math.max(0, Math.min(1, Number(saved)));
+    } catch { /* Storage may be unavailable in private or embedded contexts. */ }
     this.buffers = new Map();
     this.voiceEnd = 0;
     this.started = false;
@@ -118,7 +124,7 @@ export class Soundtrack {
     if (!this.ctx) {
       const ctx = (this.ctx = new AudioContext());
       this.master = ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 1;
+      this.master.gain.value = this.muted ? 0 : this.volume;
       this.master.connect(ctx.destination);
       this.musicGain = ctx.createGain();
       this.musicGain.gain.value = 0;
@@ -404,7 +410,7 @@ export class Soundtrack {
     const amount = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 0;
     const side = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
     const t = this.ctx.currentTime;
-    this.wingWaterGain.gain.setTargetAtTime(amount * 0.08 * FX_LEVEL, t, amount > 0 ? 0.08 : 0.2);
+    this.wingWaterGain.gain.setTargetAtTime(amount * 0.1 * FX_LEVEL, t, amount > 0 ? 0.08 : 0.2);
     this.wingWaterPan.pan.setTargetAtTime(side * 0.75, t, 0.12);
   }
 
@@ -474,9 +480,20 @@ export class Soundtrack {
     gain.linearRampToValueAtTime(0, now + Math.max(0.01, seconds));
   }
 
+  setVolume(volume) {
+    if (!Number.isFinite(volume)) return;
+    this.volume = Math.max(0, Math.min(1, volume));
+    this.muted = false;
+    try { localStorage.setItem('glider.volume', String(this.volume)); } catch { /* Optional preference. */ }
+    if (this.ctx && !this.finishing) {
+      this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.08);
+    }
+  }
+
   toggleMute() {
     this.muted = !this.muted;
-    if (this.ctx && !this.finishing) this.master.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.15);
+    if (this.ctx && !this.finishing) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.15);
     return this.muted;
   }
 }

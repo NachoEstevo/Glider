@@ -160,7 +160,11 @@ export class Flight {
     const recoveryHeight = floor + (floor > 6.9 ? 6 : 0);
     if (this.pos.y < recoveryHeight) vs = Math.max(vs, (recoveryHeight - this.pos.y) * 1.2);
     if (this.pos.y > MAX_ALT) vs = Math.min(vs, (MAX_ALT - this.pos.y) * 0.8);
-    this.vSpeed = damp(this.vSpeed, vs, 1.1, dt);
+    // Ease the requested descent well before reaching the water. The low gain
+    // accounts for vertical-speed response lag and prevents a floor impact.
+    if (floor === 6.9 && vs < 0) vs = Math.max(vs, -0.25 * Math.max(0, this.pos.y - floor));
+    const desiredVSpeed = damp(this.vSpeed, vs, 1.1, dt);
+    this.vSpeed += THREE.MathUtils.clamp(desiredVSpeed - this.vSpeed, -8 * dt, 8 * dt);
 
     const f = this.forward();
     // Sweep the full wingspan along this step. This is an emergency backstop

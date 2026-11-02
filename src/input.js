@@ -11,6 +11,7 @@ export class Input {
     this.state = { steer: 0, climb: 0, boost: false };
 
     addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement && e.target.type === 'range' && !ACTIONS[e.code]) return;
       if (e.target instanceof HTMLButtonElement && (e.code === 'Space' || e.code === 'Enter')) return;
       if (ACTIONS[e.code] && !e.repeat) { this.onAction(ACTIONS[e.code]); if (e.code === 'Space') e.preventDefault(); }
       this.keys.add(e.code);

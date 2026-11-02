@@ -188,6 +188,8 @@ async function main() {
 
   // --- audio, story, input ---------------------------------------------------------
   const sound = new Soundtrack({ tracks: tracksData.tracks, dialogue });
+  ui.onVolumeChange = (volume) => { sound.setVolume(volume); ui.setVolume(sound.volume, sound.muted); };
+  ui.setVolume(sound.volume, sound.muted);
   const session = new FlightSession();
   const ending = new FlightEnding();
   let progress = { time: 0, fuelFraction: 1 };
@@ -212,7 +214,9 @@ async function main() {
       requestAnimationFrame(() => ui.veil(false));
       if (pendingTrack) setTimeout(() => ui.nowPlaying(...pendingTrack, tracksData.tracks.length), 4000);
     },
+    onReady: () => ui.showHandover(true, () => intro.skip()),
     onHandover: () => {
+      ui.showHandover(false);
       phase = 'flight';
       flight.speedScale = 1;
       ui.enableFlightUi();
@@ -225,7 +229,7 @@ async function main() {
     if (a === 'skip' && phase === 'intro') intro.skip();
     else if (a === 'camera' && (phase === 'flight' || phase === 'intro')) ui.flashMode(rig.cycle().toUpperCase() + ' VIEW');
     else if (a === 'hide') ui.toggleHidden();
-    else if (a === 'mute') ui.flashMode(sound.toggleMute() ? 'MUTED' : 'SOUND ON');
+    else if (a === 'mute') { ui.flashMode(sound.toggleMute() ? 'MUTED' : 'SOUND ON'); ui.setVolume(sound.volume, sound.muted); }
     else if (a === 'credits' || (a === 'escape' && !document.getElementById('credits').classList.contains('hidden'))) ui.toggleCredits();
     else if (a === 'help' && phase === 'flight') ui.toggleHelp();
     else if (a === 'fullscreen') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
@@ -314,7 +318,9 @@ async function main() {
     if (phase === 'intro' || phase === 'flight') {
       progress = session.update(dt, { audioTime: sound.time, audioDuration: sound.music.duration, audioStarted: sound.started, audioEnded: sound.music.ended });
     }
-    if (phase === 'flight' && session.ended) {
+    if ((phase === 'flight' || phase === 'intro') && session.ended) {
+      if (phase === 'intro') { sound.stopVoice(); ui.showIntro(false); }
+      ui.showHandover(false);
       phase = 'ending';
       ending.begin(flight, rig);
       rig.mode = 'chase';

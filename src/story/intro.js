@@ -2,12 +2,14 @@
 // and the ship AI talk, the journal backup, then the world fades in and the last
 // exchange plays over the flight. Space skips straight to flying.
 export class Intro {
-  constructor({ dialogue, soundtrack, ui, onReveal, onHandover }) {
+  constructor({ dialogue, soundtrack, ui, onReveal, onReady, onHandover }) {
     this.d = dialogue;
     this.sound = soundtrack;
     this.ui = ui;
     this.onReveal = onReveal;
     this.onHandover = onHandover;
+    this.onReady = onReady;
+    this.readyForHandover = false;
     this.played = new Set();
     this.revealed = false;
     this.done = false;
@@ -69,7 +71,10 @@ export class Intro {
 
     if (!this.revealed && t >= this.d.worldRevealAt) this._reveal();
     const allSaid = this.played.size === this.d.lines.length && this.sound.voiceIdle();
-    if (t >= this.d.handoverAt && allSaid) this._handover();
+    if (!this.readyForHandover && t >= this.d.handoverAt && allSaid) {
+      this.readyForHandover = true;
+      this.onReady();
+    }
   }
 
   _say(line, t) {

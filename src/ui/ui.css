@@ -89,12 +89,15 @@ p { margin: 0; }
   transition: opacity 1.2s var(--ease);
 }
 .hud-row { display: flex; justify-content: space-between; gap: 12px; }
-.hud-track { position: relative; height: 18px; margin-top: 6px; }
+.hud-track { position: relative; height: 18px; margin: 6px 12px 0; }
 .hud-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.55); }
 .hud-line::before, .hud-line::after { content: ''; position: absolute; top: -3px; width: 1px; height: 7px; background: rgba(255, 255, 255, 0.7); }
 .hud-line::before { left: 0; }
 .hud-line::after { right: 0; }
-.hud-plane { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; color: #fff; transition: left 1s linear; }
+.hud-fuel-dot { position: absolute; top: calc(50% + .5px); width: 7px; height: 7px; transform: translate(-50%, -50%); border: 1px solid rgba(3,4,5,.6); border-radius: 50%; background: var(--ink); box-sizing: border-box; transition: left 1s linear; }
+.hud-end { position: absolute; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--ink); }
+.hud-empty { right: calc(100% + 8px); }
+.hud-full { left: calc(100% + 8px); }
 .hud-mode { margin-top: 4px; text-align: center; font-size: 9px; color: var(--faint); min-height: 1em; }
 
 .help {
@@ -181,3 +184,17 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 .ending-roll-viewport.reduced-motion { inset: 20px 0 80px; overflow-y: auto; }
 .reduced-motion .ending-roll { position: static; transform: none; }
 #endingContinue { position: absolute; bottom: 18px; }
+
+.handover { position: fixed; z-index: 12; left: 50%; bottom: 13%; transform: translateX(-50%); text-align: center; text-shadow: 0 1px 12px #000; transition: opacity 1s var(--ease); }
+.handover-key { color: var(--ink); font-size: 11px; letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
+.handover .begin { margin-top: 14px; background: rgba(3, 4, 5, .6); }
+
+.audio-controls { position: fixed; z-index: 31; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 10px; letter-spacing: .08em; text-shadow: 0 1px 8px #000; transition: opacity .4s var(--ease); }
+.audio-controls input { appearance: none; -webkit-appearance: none; width: 90px; height: 24px; margin: 0; background: transparent; cursor: pointer; }
+.audio-controls input::-webkit-slider-runnable-track { height: 1px; border: 0; background: rgba(255,255,255,.55); }
+.audio-controls input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 7px; height: 7px; margin-top: -3px; box-sizing: border-box; border: 1px solid rgba(3,4,5,.6); border-radius: 50%; background: var(--ink); }
+.audio-controls input::-moz-range-track { height: 1px; border: 0; background: rgba(255,255,255,.55); }
+.audio-controls input::-moz-range-thumb { width: 7px; height: 7px; box-sizing: border-box; border: 1px solid rgba(3,4,5,.6); border-radius: 50%; background: var(--ink); }
+.audio-controls input:focus-visible { outline: 1px solid rgba(255,255,255,.7); outline-offset: 4px; }
+.audio-controls output { min-width: 3.2em; }
+@media (max-width: 640px) { .audio-controls { left: 16px; bottom: 90px; } }

@@ -73,7 +73,7 @@ const ALBEDO = /* glsl */`
     // floors burnt out
     vec2 cell = floor(fp / 3.6);
     float paneGone = step(0.35, th(cell + rSeed * 13.0));
-    float burnt = step(0.86, th(vec2(cell.y, rSeed * 91.0)));
+    float burnt = 0.0; // Missing panes and damp weathering tell the story of long abandonment.
     // behind a missing pane: the room itself (interior mapping). The wall's tangent frame
     // comes from screen derivatives of the facade metres, so it holds for any building turn.
     vec3 room = vec3(0.045, 0.05, 0.045);

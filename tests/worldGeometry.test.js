@@ -38,3 +38,18 @@ test('the complete drowned-city plan generates finite indexed architecture withi
   }
   assert.ok(triangles < 1_000_000, 'architecture must retain a bounded full-world geometry budget');
 });
+
+test('selected weathered buildings have actual open bays and a core behind them', async () => {
+  const THREE = await import('three');
+  const item = { x: 0, z: 0, y: -3, w: 20, d: 16, h: 20, hb: 20, yaw: 0, lean: 0, leanDir: 0, arch: 'intact', seed: 10, ledge: 0, balc: false };
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  const [mesh] = buildRuinMeshes([item], material, ruinFrame, () => 0);
+  const ray = new THREE.Raycaster(new THREE.Vector3(-7.5, 2, 20), new THREE.Vector3(0, 0, -1));
+  const hits = ray.intersectObject(mesh);
+  assert.ok(hits.length > 0);
+  assert.ok(hits[0].point.z < 4, 'open bay must expose the recessed interior');
+  ray.set(new THREE.Vector3(-9.5, 2, 20), new THREE.Vector3(0, 0, -1));
+  assert.ok(ray.intersectObject(mesh)[0].point.z > 7.5, 'the structural edge pier remains');
+  mesh.geometry.dispose();
+  material.dispose();
+});

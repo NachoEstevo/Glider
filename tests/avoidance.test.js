@@ -73,7 +73,7 @@ test('held descent levels out against the water floor so a banked wing can graze
   flight.input.steer = 1;
   for (let i = 0; i < 300; i++) flight.update(.1);
   assert.ok(flight.pos.y >= 6.9 && flight.pos.y < 7.1);
-  assert.ok(flight.vSpeed >= 0);
+  assert.ok(Math.abs(flight.vSpeed) < .01);
   assert.ok(Math.abs(flight.pitch) < .02);
   // Wingtip has 12.35 m lateral span and sits approximately 8 m behind the origin.
   const wingHeight = flight.pos.y - 12.35 * Math.sin(Math.abs(flight.bank)) + 8 * Math.sin(flight.pitch);
@@ -170,4 +170,26 @@ test('descending over a wide roof holds clearance without lifting or freezing fl
   }
   assert.ok(leftRoof);
   assert.ok(flight.pos.y < 54, 'descent resumes after the roof');
+});
+test('held descent eases into the water floor with bounded deceleration', () => {
+  for (const startY of [30, 80]) {
+    const flight = new Flight({start: new THREE.Vector3(0, startY, 0), heading: 0, terrain: water});
+    flight.autopilot = false;
+    flight.input.climb = -1;
+    let maxDeceleration = 0;
+    for (let i = 0; i < 600; i++) {
+      const beforeSpeed = flight.vSpeed, beforeY = flight.pos.y;
+      flight.update(.1);
+      maxDeceleration = Math.max(maxDeceleration, (flight.vSpeed - beforeSpeed) / .1);
+      assert.ok(flight.pos.y >= 6.9);
+      assert.ok(flight.pos.y <= beforeY + 1e-9);
+    }
+    assert.ok(maxDeceleration < 3, `deceleration ${maxDeceleration}`);
+    assert.ok(flight.pos.y < 6.91);
+    assert.ok(Math.abs(flight.vSpeed) < .01);
+    flight.input.climb = 1;
+    const beforeY = flight.pos.y;
+    for (let i = 0; i < 20; i++) flight.update(.1);
+    assert.ok(flight.pos.y > beforeY + 2, 'climb responds after low flight');
+  }
 });

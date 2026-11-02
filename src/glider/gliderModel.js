@@ -148,6 +148,10 @@ function engine(mats) {
   const lip = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.075, 12, 48), mats.chrome);
   lip.position.z = 2.36;
   pod.add(lip);
+  // A recessed inner rim gives the intake a visible thickness against the dark duct.
+  const innerRim = new THREE.Mesh(new THREE.TorusGeometry(0.59, 0.025, 8, 40), mats.blade);
+  innerRim.position.z = 2.22;
+  pod.add(innerRim);
   // intake duct and fan
   const duct = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.7, 32, 1, true).rotateX(Math.PI / 2), mats.duct);
   duct.position.z = 1.8;
@@ -155,7 +159,15 @@ function engine(mats) {
   const fan = new THREE.Group();
   const blades = [];
   for (let k = 0; k < 16; k++) {
-    const b = new THREE.BoxGeometry(0.05, 0.4, 0.12).rotateY(0.5).translate(0, 0.37, 0).rotateZ((k / 16) * Math.PI * 2);
+    const b = new THREE.BoxGeometry(0.11, 0.43, 0.045);
+    // Swept, tapered blades catch the light individually as the fan turns.
+    const bp = b.attributes.position;
+    for (let i = 0; i < bp.count; i++) {
+      const y = bp.getY(i), taper = y > 0 ? 0.55 : 1;
+      bp.setX(i, bp.getX(i) * taper + y * 0.23);
+    }
+    b.computeVertexNormals();
+    b.rotateY(0.4).translate(0, 0.36, 0).rotateZ((k / 16) * Math.PI * 2);
     blades.push(b);
   }
   const bladeGeo = blades.reduce((acc, b) => (acc ? mergeInto(acc, b) : b), null);
@@ -178,6 +190,9 @@ function engine(mats) {
   }
   const petals = new THREE.Mesh(petalGeometries.reduce((a, b) => a ? mergeInto(a, b) : b, null), mats.duct);
   pod.add(petals);
+  const nozzleRim = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 8, 40), mats.blade);
+  nozzleRim.position.z = -2.43;
+  pod.add(nozzleRim);
   const plug = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.0, 24).rotateX(-Math.PI / 2), mats.duct);
   plug.position.z = -2.75;
   pod.add(plug);
@@ -330,8 +345,8 @@ export function createGlider() {
   const fx = engineFx();
   Object.assign(mats, { turbine: fx.turbine, plume: fx.plume });
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x263b44, metalness: 0.32, roughness: 0.13, clearcoat: 1, clearcoatRoughness: 0.08,
-    envMapIntensity: 1.6,
+    color: 0x324953, metalness: 0.12, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.035,
+    ior: 1.48, envMapIntensity: 2.1,
   });
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3c3e, roughness: 0.45, metalness: 0.7 });
 
@@ -343,6 +358,13 @@ export function createGlider() {
   canopy.scale.set(CANOPY_W, CANOPY_H, 1);
   canopy.position.y = CANOPY_Y;
   body.add(canopy);
+  // A dark gasket grounds the transparent-looking shell against the fuselage.
+  const sealMat = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.68, metalness: 0.12 });
+  for (const side of [-1, 1]) {
+    const points = [];
+    for (let z = 2.65; z <= 7.7; z += 0.18) points.push(new THREE.Vector3(side * CANOPY_W * canopyR(z), CANOPY_Y, z));
+    body.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 32, 0.035, 5), sealMat));
+  }
   for (const z of [3.3, 4.7, 6.1]) {
     const r = canopyR(z);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.045 / r, 6, 28, Math.PI), frameMat);

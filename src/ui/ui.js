@@ -6,9 +6,11 @@ export class UI {
   constructor() {
     this.el = {
       start: $('start'), begin: $('begin'), intro: $('intro'), veil: $('veil'), loading: $('loading'),
+      audioControls: $('audioControls'), volume: $('volume'), volumeOutput: $('volumeOutput'),
+      handover: $('handover'), handoverButton: $('handoverButton'),
       sys: $('introSys'), pilot: $('introPilot'), ai: $('introAi'), log: $('introLog'), logText: $('introLogText'),
       subs: $('subs'), toast: $('toast'), toastIdx: $('toastIdx'), toastTitle: $('toastTitle'), toastArtist: $('toastArtist'),
-      hud: $('hud'), hudFuel: $('hudFuel'), hudAlt: $('hudAlt'), hudClock: $('hudClock'), hudPlane: $('hudPlane'), hudMode: $('hudMode'),
+      hud: $('hud'), hudFuel: $('hudFuel'), hudAlt: $('hudAlt'), hudClock: $('hudClock'), hudFuelDot: $('hudFuelDot'), fuelGauge: $('fuelGauge'), hudMode: $('hudMode'),
       ending: $('ending'), endingFade: $('endingFade'), flyAgain: $('flyAgain'), endingCredits: $('endingCredits'),
       endingPanel: $('endingPanel'), endingRoll: $('endingRoll'), endingRollViewport: $('endingRollViewport'),
       endingContinue: $('endingContinue'), endingTracks: $('endingTracks'),
@@ -18,6 +20,8 @@ export class UI {
     this.musicRecovery.type = 'button';
     this.musicRecovery.className = 'music-recovery hidden';
     document.body.append(this.musicRecovery);
+    this.onVolumeChange = () => {};
+    this.el.volume.oninput = () => this.onVolumeChange(Number(this.el.volume.value) / 100);
     this.flightUi = false;   // HUD + info button allowed (after the intro)
     this.hidden = false;     // H key
     this.helpHidden = false;
@@ -28,6 +32,12 @@ export class UI {
     this.el.info.onclick = () => this.toggleCredits();
     this.el.creditsClose.onclick = () => this.toggleCredits(false);
     this.el.credits.onclick = (e) => { if (e.target === this.el.credits) this.toggleCredits(false); };
+  }
+
+  setVolume(volume, muted) {
+    const percent = Math.round(volume * 100);
+    this.el.volume.value = percent;
+    this.el.volumeOutput.textContent = muted ? 'Muted' : `${percent}%`;
   }
 
   setMusicState(state, onResume) {
@@ -44,6 +54,7 @@ export class UI {
   showEnding(onReplay) {
     this._endingShown = true;
     show(this.musicRecovery, false);
+    show(this.el.audioControls, false);
     this.flightUi = false;
     this._applyVisibility();
     show(this.el.help, false);
@@ -82,6 +93,12 @@ export class UI {
       syncVisibility();
       animation.finished.then(finish);
     }
+  }
+
+  showHandover(on, onAccept) {
+    this.el.handoverButton.onclick = on ? onAccept : null;
+    show(this.el.handover, on);
+    if (on) this.el.handoverButton.focus({ preventScroll: true });
   }
 
   setLoading(text) {
@@ -196,6 +213,7 @@ export class UI {
     const on = this.flightUi && !this.hidden;
     show(this.el.hud, on);
     show(this.el.info, on);
+    show(this.el.audioControls, !this.hidden && !this._endingShown);
     show(this.el.help, on && !this.helpHidden);
   }
 
@@ -212,7 +230,9 @@ export class UI {
     e.hudFuel.textContent = `FUEL ${fuel.toFixed(1)} GAL`;
     e.hudAlt.textContent = `ALT ${Math.round(alt)} M · ${Math.round(speed)} M/S`;
     e.hudClock.textContent = clock;
-    e.hudPlane.style.left = `${(fuelFrac * 100).toFixed(2)}%`;
+    e.hudFuelDot.style.left = `${(fuelFrac * 100).toFixed(2)}%`;
+    e.fuelGauge.setAttribute('aria-valuenow', (fuelFrac * 100).toFixed(1));
+    e.fuelGauge.setAttribute('aria-valuetext', `${fuel.toFixed(1)} gallons remaining`);
   }
 
   flashMode(text) {

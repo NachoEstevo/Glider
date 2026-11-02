@@ -310,7 +310,7 @@ float sunShadow(vec3 p) {
   // one hardware 2x2 PCF tap: texels are ~0.44 m, soft enough on moving water. The water
   // casts nothing, so the bias only has to cover depth precision.
   if (all(greaterThan(sc.xy, vec2(0.0))) && all(lessThan(sc.xyz, vec3(1.0)))) s = texture(uShadowMap, vec3(sc.xy, sc.z - uShadowBias));
-  return min(s, floatShadow(p));
+  return s;
 }
 
 // Poisson count with mean lam from one uniform number: inverse CDF, normal (logistic)
@@ -364,7 +364,9 @@ void main() {
 
   float NoV = max(dot(Nrm, V), 1e-4);
   float NoL = dot(Nrm, uSunDir);
-  float shadow = sunShadow(vWorld) * cloudShadow(vWorld, uSunDir);
+  float staticShadow = sunShadow(vWorld);
+  float cloud = cloudShadow(vWorld, uSunDir);
+  float shadow = min(staticShadow, floatShadow(vWorld)) * cloud;
 
   // --- foam -------------------------------------------------------------------
   float t0 = texture(uDisp0, vXZ / uLength.x).w, t1 = texture(uDisp1, vXZ / uLength.y).w, t2 = texture(uDisp2, vXZ / uLength.z).w;
@@ -434,12 +436,16 @@ void main() {
   // --- lighting ------------------------------------------------------------------
   vec3 ambient = skyLod(vec3(0.0, 1.0, 0.0), uSkyMaxLod);
   vec3 sun = uSunColor * shadow;
-  // in-scatter of the water column (sun + sky), then Atlas-style SSS on crests
-  vec3 inscatter = uScatterColor * (ambient + uSunColor * (0.3 + 0.7 * shadow) * max(uSunDir.y, 0.0));
+  // A surface sample cannot represent the heterogeneous shadow along the whole water
+  // column. Leave dynamic casters to the refracted bed and surface lighting instead
+  // of stamping their flat silhouette across the column's scattering.
+  float columnShadow = staticShadow * cloud;
+  vec3 columnSun = uSunColor * columnShadow;
+  vec3 inscatter = uScatterColor * (ambient + uSunColor * (0.3 + 0.7 * columnShadow) * max(uSunDir.y, 0.0));
   float h = max(vWorld.y, 0.0);
   float k1 = uSSS.x * h * pow(clamp(dot(uSunDir, -V), 0.0, 1.0), 4.0) * pow(0.5 - 0.5 * NoL, 3.0);
   float k2 = uSSS.y * pow(NoV, 2.0);
-  vec3 sss = (k1 + k2) * uScatterColor * sun + uSSS.z * max(NoL, 0.0) * uScatterColor * sun;
+  vec3 sss = (k1 + k2) * uScatterColor * columnSun + uSSS.z * max(NoL, 0.0) * uScatterColor * columnSun;
   // thin breaking lips: sunlight through about a metre of water glows turquoise,
   // strongest looking into the sun
   sss += shore.lip * sun * exp(-uAbsorption * 2.0) * 0.06 * (0.3 + 2.5 * pow(clamp(dot(uSunDir, -V), 0.0, 1.0), 3.0));
