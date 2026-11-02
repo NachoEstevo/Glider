@@ -7,7 +7,8 @@ import { worldHeight } from '../world/worldHeight.js';
 // the ocean without a synchronous height readback.
 const SEGMENTS = 64;
 const LIFE = 1.5;
-const WIDTH = 0.19;
+const WIDTH = 0.34;
+const SAMPLE_DISTANCE = 0.65;
 const IMPACT_LIFE = 1.5;
 const IMPACT_INTERVAL = 0.2;
 const VERT = /* glsl */`
@@ -19,13 +20,13 @@ out float vAlpha;
 out vec2 vUv;
 out vec2 vXZ;
 void main() {
-  if (aStrength <= 0.0 || aAge >= 1.5) { vAlpha = 0.0; vUv = uv; vXZ = position.xz; gl_Position = vec4(2.0); return; }
+  if (aStrength <= 0.0 || aAge >= ${LIFE.toFixed(2)}) { vAlpha = 0.0; vUv = uv; vXZ = position.xz; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec2 xz = position.xz + aSpread * aAge * 1.35;
   float water = waterAt(xz, vec3(0.0)).y;
-  vAlpha = aStrength * pow(max(0.0, 1.0 - aAge / ${LIFE.toFixed(2)}), 1.5);
+  vAlpha = aStrength * pow(max(0.0, 1.0 - aAge / ${LIFE.toFixed(2)}), 1.2);
   vUv = uv;
   vXZ = xz;
-  gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, water + 0.08, xz.y, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, water + 0.14, xz.y, 1.0);
 }`;
 const FRAG = /* glsl */`
 precision highp float;
@@ -35,11 +36,11 @@ in vec2 vUv;
 in vec2 vXZ;
 out vec4 fragColor;
 void main() {
-  // Two fine broken lines leave dark water between them as the wake opens.
+  // Two textured edges leave dark water between them as the wake opens.
   float edge = abs(vUv.x * 2.0 - 1.0);
-  float bands = smoothstep(0.30, 0.65, edge) * (1.0 - smoothstep(0.82, 1.0, edge));
+  float bands = smoothstep(0.20, 0.55, edge) * (1.0 - smoothstep(0.86, 1.0, edge));
   float texture_ = texture(uFoamTex, vXZ * 0.32).r;
-  fragColor = vec4(0.88, 0.96, 1.0, vAlpha * bands * (0.32 + 0.30 * texture_));
+  fragColor = vec4(0.94, 0.98, 1.0, vAlpha * bands * (0.55 + 0.40 * texture_));
 }`;
 const SPRAY_VERT = /* glsl */`
 ${WATER_GLSL}
@@ -48,14 +49,21 @@ in float aStrength;
 in vec2 aSpread;
 out float vAlpha;
 void main() {
-  if (aStrength <= 0.0 || aAge >= 0.65) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0); return; }
+  if (aStrength <= 0.0 || aAge >= 0.95) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   float t = aAge;
-  vec2 xz = position.xz + aSpread * t * 1.7;
+  // Each shared strip vertex is a small droplet with a distinct, outward arc.
+  float seed = hash12(vec2(float(gl_VertexID), 1.7));
+  float turn = hash12(vec2(float(gl_VertexID), 8.3));
+  float arc = (3.2 + 1.7 * seed) * t - 4.9 * t * t;
+  if (arc < -0.03) { vAlpha = 0.0; gl_PointSize = 1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vec2 tangent = vec2(-aSpread.y, aSpread.x);
+  vec2 velocity = aSpread * (1.5 + 1.1 * seed) + tangent * ((turn - 0.5) * 1.1);
+  vec2 xz = position.xz + velocity * t;
   float water = waterAt(xz, vec3(0.0)).y;
-  vAlpha = aStrength * pow(max(0.0, 1.0 - t / 0.65), 1.3);
-  float arc = max(0.0, 1.5 * t - 2.2 * t * t);
-  vec4 view = viewMatrix * vec4(xz.x, water + 0.12 + arc, xz.y, 1.0);
-  gl_PointSize = clamp(30.0 / max(1.0, -view.z), 1.0, 4.0);
+  vAlpha = aStrength * smoothstep(0.0, 0.06, t) * smoothstep(-0.03, 0.09, arc)
+         * pow(max(0.0, 1.0 - t / 0.95), 1.15);
+  vec4 view = viewMatrix * vec4(xz.x, water + 0.08 + max(0.0, arc), xz.y, 1.0);
+  gl_PointSize = clamp(180.0 / max(1.0, -view.z), 1.8, 8.0);
   gl_Position = projectionMatrix * view;
 }`;
 const SPRAY_FRAG = /* glsl */`
@@ -64,7 +72,7 @@ in float vAlpha;
 out vec4 fragColor;
 void main() {
   float r = length(gl_PointCoord - 0.5) * 2.0;
-  fragColor = vec4(0.7, 0.85, 0.9, vAlpha * (1.0 - smoothstep(0.15, 1.0, r)) * 0.25);
+  fragColor = vec4(0.88, 0.96, 1.0, vAlpha * (1.0 - smoothstep(0.25, 1.0, r)) * 0.60);
 }`;
 
 export class WingWake {
@@ -146,7 +154,7 @@ export class WingWake {
         this.impactCooldown = IMPACT_INTERVAL;
       }
       const dx = p.x - prev.x, dz = p.z - prev.z, len = Math.hypot(dx, dz);
-      if (strength > 0.01 && this.active[side] && len > 0.01 && len < 8) {
+      if (strength > 0.01 && this.active[side] && len >= SAMPLE_DISTANCE && len < 8) {
         const slot = side * SEGMENTS + this.cursor[side];
         this.cursor[side] = (this.cursor[side] + 1) % SEGMENTS;
         const nx = -dz / len * WIDTH, nz = dx / len * WIDTH;
@@ -158,8 +166,10 @@ export class WingWake {
           this.spread[v * 2] = sign * nx / WIDTH; this.spread[v * 2 + 1] = sign * nz / WIDTH;
         }
       }
+      // Preserve a metre-scale trail on fast displays rather than spending the
+      // entire fixed pool on tiny segments in a fraction of a second.
+      if (strength <= 0.01 || !this.active[side] || len >= SAMPLE_DISTANCE) prev.copy(p);
       this.active[side] = strength > 0.01;
-      prev.copy(p);
     }
     const response = 1 - Math.exp(-dt * (strongest > this.contactStrength ? 12 : 5));
     this.contactStrength += (strongest - this.contactStrength) * response;

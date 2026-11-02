@@ -57,10 +57,42 @@ test('foam leaves gaps, reuses finite geometry and expires away from the sea', (
   assert.ok(wake.strengths.slice(256).every(v => v === 0), 'the high wing must not spray');
   assert.equal(wake.positions, positions);
   assert.equal(wake.positions.length, 512 * 3);
+  assert.equal(wake.group.children.length, 2, 'foam and spray share a fixed two-draw budget');
+  assert.equal(wake.geo.index.count / 3, 256);
   assert.ok(wake.positions.every(Number.isFinite));
   tips[0].position.y = 20;
   wake.update(2, tips, flight);
-  assert.ok(wake.ages.every(v => v >= 1.15 - 1e-6));
+  assert.ok(wake.ages.every(v => v >= 1.5), 'all foam and spray must expire after contact');
+});
+
+test('lifting and re-entering the water does not bridge the gap', () => {
+  const { wake, tips, flight } = fixture();
+  wake.update(1 / 60, tips, flight);
+  tips[0].position.z += 0.8;
+  wake.update(1 / 60, tips, flight);
+  const cursor = wake.cursor[0];
+  assert.ok(cursor > 0);
+
+  tips[0].position.set(10000, 10, 10020);
+  wake.update(1 / 60, tips, flight);
+  tips[0].position.y = 0.2;
+  wake.update(1 / 60, tips, flight);
+  assert.equal(wake.cursor[0], cursor, 'the first point after a gap must not emit a strip');
+
+  tips[0].position.z += 0.8;
+  wake.update(1 / 60, tips, flight);
+  assert.equal(wake.cursor[0], cursor + 1);
+});
+
+test('high refresh rates preserve the wake length within the fixed pool', () => {
+  const { wake, tips, flight } = fixture();
+  for (let frame = 0; frame < 144 * 3; frame++) {
+    tips[0].position.z += 34 / 144;
+    wake.update(1 / 144, tips, flight);
+  }
+  const liveAges = Array.from(wake.ages).filter((age, i) => wake.strengths[i] > 0 && age < 1.5);
+  assert.ok(Math.max(...liveAges) > 1, 'the pool retains more than a second of trail at 144 Hz');
+  assert.equal(wake.positions.length, 512 * 3);
 });
 
 test('both wings write opposing finite spread vectors only over open water', () => {

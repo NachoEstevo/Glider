@@ -30,6 +30,7 @@ import { AdaptiveQuality } from './engine/AdaptiveQuality.js';
 const REFLECT_LAYER = 1;
 const args = new URLSearchParams(location.search);
 const DEV = args.has('dev');   // straight into the flight, no audio (for tuning)
+const GLIDER_DEMO = args.get('demo') === 'glider';
 const PREVIEW_ENDING = args.get('preview') === 'ending';
 const ui = new UI();
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
@@ -120,7 +121,7 @@ async function main() {
   Object.assign(post.params, { bloomStrength: mobile ? 0 : 0.035, bloomThreshold: 1.5, contrast: 1.04, saturation: 1.07, keyValue: 0.2 });
 
   // --- the glider and its company --------------------------------------------------
-  const glider = createGlider();
+  let glider = createGlider();
   scene.add(glider.root);
   const trails = new Trails();
   scene.add(trails.group);
@@ -226,6 +227,7 @@ async function main() {
   const input = new Input(renderer.domElement);
   input.onZoom = (d) => { if (phase === 'flight') rig.zoom = THREE.MathUtils.clamp(rig.zoom * (d > 0 ? 1.1 : 1 / 1.1), 0.5, 2.4); };
   input.onAction = (a) => {
+    if (GLIDER_DEMO && a !== 'fullscreen') { window.app?.demo?.onAction(a); return; }
     if (a === 'skip' && phase === 'intro') intro.skip();
     else if (a === 'camera' && (phase === 'flight' || phase === 'intro')) ui.flashMode(rig.cycle().toUpperCase() + ' VIEW');
     else if (a === 'hide') ui.toggleHidden();
@@ -315,7 +317,7 @@ async function main() {
     const resolution = adaptive.sample(frameMs);
     if (resolution !== null) { quality.resolution = resolution; resize(); }
 
-    if (phase === 'intro' || phase === 'flight') {
+    if (!GLIDER_DEMO && (phase === 'intro' || phase === 'flight')) {
       progress = session.update(dt, { audioTime: sound.time, audioDuration: sound.music.duration, audioStarted: sound.started, audioEnded: sound.music.ended });
     }
     if ((phase === 'flight' || phase === 'intro') && session.ended) {
@@ -387,7 +389,8 @@ async function main() {
     toWing.copy(wingWake.contactPoint).sub(camera.position);
     camRight.setFromMatrixColumn(camera.matrixWorld, 0);
     const wingPan = THREE.MathUtils.clamp(toWing.dot(camRight) / Math.max(1, toWing.length()), -1, 1);
-    sound.setWingWaterContact(wingWake.contactStrength, wingPan);
+    if (GLIDER_DEMO) window.app?.demo?.setWingWaterContact(wingWake.contactStrength, wingPan, flight.speed);
+    else sound.setWingWaterContact(wingWake.contactStrength, wingPan, flight.speed);
     spray.update();
 
     if (renderer.shadowMap.needsUpdate) metrics.shadowUpdates++;
@@ -412,7 +415,18 @@ async function main() {
   window.app = { flight, rig, sky, post, surface, ocean, sound, ui, scene, camera, glider, birds, applySun, quality, intro, terrain, renderer, session, ending, adaptive, metrics, wingWake, get phase() { return phase; } };
 
   if (args.has('debug')) (await import('./debug.js')).debugPanel(window.app);
-  if (DEV) {
+  if (GLIDER_DEMO) {
+    ui.hideStart();
+    intro.skip();
+    ui.toggleHidden();
+    const { mountGliderDemo } = await import('./demo/gliderDemo.js');
+    window.app.demo = mountGliderDemo(window.app, (next) => {
+      glider.root.visible = false;
+      glider = next;
+      glider.root.visible = true;
+      window.app.glider = next;
+    });
+  } else if (DEV) {
     ui.hideStart();
     intro.skip();
     // no start screen here, so the audio waits for the first click or key (browser autoplay rule)

@@ -126,15 +126,234 @@ function canopyR(z) {
   return 0;
 }
 
+// Smooth the existing stations without changing the canopy's overall envelope.
+function refinedCanopyR(z) {
+  if (z <= CANOPY[0][1] || z >= CANOPY.at(-1)[1]) return 0;
+  let i = 0;
+  while (CANOPY[i + 1][1] < z) i++;
+  const slope = (a, b) => (CANOPY[b][0] - CANOPY[a][0]) / (CANOPY[b][1] - CANOPY[a][1]);
+  const tangent = (j) => {
+    if (j === 0) return slope(0, 1);
+    if (j === CANOPY.length - 1) return slope(j - 1, j);
+    const before = slope(j - 1, j), after = slope(j, j + 1);
+    return before * after <= 0 ? 0 : 2 * before * after / (before + after);
+  };
+  const [r0, z0] = CANOPY[i], [r1, z1] = CANOPY[i + 1], h = z1 - z0, t = (z - z0) / h;
+  return (2 * t ** 3 - 3 * t ** 2 + 1) * r0 + (t ** 3 - 2 * t ** 2 + t) * h * tangent(i)
+    + (-2 * t ** 3 + 3 * t ** 2) * r1 + (t ** 3 - t ** 2) * h * tangent(i + 1);
+}
+
+function fuselageTop(z, x) {
+  const [width, height, , centre] = section(z), exponent = 2 / 2.6;
+  const c = Math.min(Math.abs(x) / width, 1) ** (1 / exponent);
+  return centre + height * Math.max(0, 1 - c * c) ** (exponent / 2);
+}
+
+function canopyEdge(z) {
+  const radius = refinedCanopyR(z);
+  if (CANOPY_Y + CANOPY_H * radius <= fuselageTop(z, 0)) return null;
+  let low = 0, high = Math.PI / 2;
+  for (let i = 0; i < 18; i++) {
+    const angle = (low + high) / 2;
+    const x = CANOPY_W * radius * Math.cos(angle), y = CANOPY_Y + CANOPY_H * radius * Math.sin(angle);
+    if (y < fuselageTop(z, x)) low = angle;
+    else high = angle;
+  }
+  const angle = (low + high) / 2;
+  return { angle, x: CANOPY_W * radius * Math.cos(angle), y: CANOPY_Y + CANOPY_H * radius * Math.sin(angle) };
+}
+
+function addRefinedCanopy(body) {
+  const z0 = CANOPY[0][1], z1 = CANOPY.at(-1)[1], segments = 48;
+  const profile = Array.from({ length: segments + 1 }, (_, i) => {
+    const z = THREE.MathUtils.lerp(z0, z1, i / segments);
+    return new THREE.Vector2(refinedCanopyR(z), z);
+  });
+  // One translucent upper shell uses the existing environment reflections and
+  // avoids a transmission pass; the dark insert beneath supplies depth.
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: 0x486772, metalness: 0.08, roughness: 0.1, clearcoat: 0.9, clearcoatRoughness: 0.08,
+    ior: 1.48, envMapIntensity: 1.45, transparent: true, opacity: 0.76, depthWrite: false,
+  });
+  const canopy = new THREE.Mesh(new THREE.LatheGeometry(profile, 24, Math.PI / 2, Math.PI).rotateX(Math.PI / 2), glass);
+  canopy.name = 'refined-canopy';
+  canopy.scale.set(CANOPY_W, CANOPY_H, 1);
+  canopy.position.y = CANOPY_Y;
+  body.add(canopy);
+
+  // Trace the exposed footprint where the bubble intersects the actual fuselage.
+  const edges = [];
+  for (let i = 0; i <= segments; i++) {
+    const z = THREE.MathUtils.lerp(z0, z1, i / segments), edge = canopyEdge(z);
+    if (edge) edges.push({ z, ...edge });
+  }
+  const seals = [-1, 1].map((side) => {
+    const points = edges.map(({ x, y, z }) => new THREE.Vector3(side * x, y + 0.015, z));
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 0.025, 6);
+  });
+  const seal = new THREE.Mesh(mergeInto(seals[0], seals[1]), new THREE.MeshStandardMaterial({ color: 0x1c292b, roughness: 0.7, metalness: 0.1 }));
+  seal.name = 'refined-canopy-seal';
+  body.add(seal);
+
+  const bows = [3.55, 5.6].map((z) => {
+    const { angle } = canopyEdge(z), radius = refinedCanopyR(z) * 1.015;
+    const points = Array.from({ length: 21 }, (_, i) => {
+      const a = THREE.MathUtils.lerp(angle, Math.PI - angle, i / 20);
+      return new THREE.Vector3(CANOPY_W * radius * Math.cos(a), CANOPY_Y + CANOPY_H * radius * Math.sin(a), z);
+    });
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 24, 0.02, 6);
+  });
+  const frames = new THREE.Mesh(mergeInto(bows[0], bows[1]), new THREE.MeshStandardMaterial({ color: 0x3a4445, roughness: 0.36, metalness: 0.68 }));
+  frames.name = 'refined-canopy-frames';
+  body.add(frames);
+
+  const vertices = [], uvs = [], indices = [], widthSteps = 4;
+  edges.forEach(({ x, z }, row) => {
+    for (let j = 0; j <= widthSteps; j++) {
+      const px = x * (2 * j / widthSteps - 1);
+      vertices.push(px, fuselageTop(z, px) + 0.025, z);
+      uvs.push(j / widthSteps, row / (edges.length - 1));
+    }
+  });
+  for (let i = 0; i < edges.length - 1; i++) for (let j = 0; j < widthSteps; j++) {
+    const a = i * (widthSteps + 1) + j, b = a + widthSteps + 1;
+    indices.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  const insert = new THREE.BufferGeometry();
+  insert.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  insert.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  insert.setIndex(indices);
+  insert.computeVertexNormals();
+  // A restrained seat/headrest and instrument coaming sit behind the tinted shell.
+  const seat = new THREE.SphereGeometry(1, 12, 8).scale(0.2, 0.24, 0.12).rotateX(-0.15).translate(0, 1.5, 4.15);
+  const panel = new THREE.BoxGeometry(0.52, 0.1, 0.16).rotateX(-0.25).translate(0, 1.48, 5.8);
+  const interior = new THREE.Mesh([insert, seat, panel].reduce((a, b) => a ? mergeInto(a, b) : b, null),
+    new THREE.MeshStandardMaterial({ color: 0x202e31, roughness: 0.74, metalness: 0.08 }));
+  interior.name = 'refined-cockpit-interior';
+  body.add(interior);
+}
+
 // --- engines ----------------------------------------------------------------------------
-function engine(mats) {
+// Curved, cambered blades form one mesh so they still spin as a single rotor.
+function refinedRotorGeometry() {
+  const pos = [], uv = [], idx = [];
+  const blades = 16, rows = 5, columns = 2;
+  for (let blade = 0; blade < blades; blade++) {
+    const angle = blade * Math.PI * 2 / blades, cs = Math.cos(angle), sn = Math.sin(angle);
+    const base = pos.length / 3;
+    for (let row = 0; row <= rows; row++) {
+      const t = row / rows, radius = 0.18 + 0.42 * t;
+      const width = 0.07 + 0.04 * Math.sin(Math.PI * t);
+      for (let column = 0; column <= columns; column++) {
+        const chord = column / columns, x = 0.075 * t * t + (chord - 0.5) * width;
+        // Chordwise camber and a small pitch let each blade catch the light.
+        const z = 0.018 * Math.sin(Math.PI * chord) + 0.05 * (chord - 0.5) * (1 - 0.35 * t);
+        pos.push(x * cs - radius * sn, x * sn + radius * cs, z);
+        uv.push(chord, t);
+      }
+    }
+    for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+      const a = base + row * (columns + 1) + column, b = a + columns + 1;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function refinedStatorGeometry() {
+  const vanes = [];
+  for (let k = 0; k < 12; k++) {
+    const vane = new THREE.BoxGeometry(0.055, 0.36, 0.025);
+    vane.rotateY(-0.3).translate(0, 0.39, 0).rotateZ(k * Math.PI * 2 / 12);
+    vanes.push(vane);
+  }
+  return vanes.reduce((a, b) => a ? mergeInto(a, b) : b, null);
+}
+
+// Each plate is transformed about its forward hinge. Instancing keeps the
+// separately moving plates and their actuator rods to two draw calls per pod.
+function refinedNozzle(mats) {
+  const count = 16, actuatorCount = 8, radius = 0.585, hingeZ = -2.43, length = 0.62;
+  const plateGeo = new THREE.BoxGeometry(0.23, 0.025, length).translate(0, 0, -length / 2);
+  const positions = plateGeo.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    if (positions.getZ(i) < -length / 2) positions.setX(i, positions.getX(i) * 0.9);
+  }
+  plateGeo.computeVertexNormals();
+  const petals = new THREE.InstancedMesh(plateGeo, mats.duct, count);
+  petals.name = 'refined-nozzle-petals';
+  petals.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Include the complete range of movement in culling, not just the first pose.
+  petals.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, -2.75), 1);
+
+  const actuators = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.018, 0.018, 1, 6, 1, true), mats.blade, actuatorCount);
+  actuators.name = 'refined-nozzle-actuators';
+  actuators.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  actuators.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, -2.43), 1.1);
+
+  const dummy = new THREE.Object3D();
+  const zAxis = new THREE.Vector3(0, 0, 1), xAxis = new THREE.Vector3(1, 0, 0), yAxis = new THREE.Vector3(0, 1, 0);
+  const tilt = new THREE.Quaternion(), direction = new THREE.Vector3(), unitDirection = new THREE.Vector3();
+  const end = new THREE.Vector3(), start = new THREE.Vector3();
+  const setOpening = (opening) => {
+    const angle = THREE.MathUtils.lerp(-0.085, 0.06, opening);
+    tilt.setFromAxisAngle(xAxis, angle);
+    for (let i = 0; i < count; i++) {
+      const a = i * Math.PI * 2 / count, c = Math.cos(a), s = Math.sin(a);
+      dummy.position.set(radius * c, radius * s, hingeZ);
+      dummy.quaternion.setFromAxisAngle(zAxis, a - Math.PI / 2).multiply(tilt);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      petals.setMatrixAt(i, dummy.matrix);
+      if (i % 2 === 0) {
+        // The rod runs from a fixed cowl mount to a point on this moving plate.
+        end.set(0, 0.025, -length * 0.7).applyQuaternion(dummy.quaternion).add(dummy.position);
+        start.set(0.735 * c, 0.735 * s, -2.02);
+        direction.subVectors(end, start);
+        dummy.position.copy(start).add(end).multiplyScalar(0.5);
+        dummy.quaternion.setFromUnitVectors(yAxis, unitDirection.copy(direction).normalize());
+        dummy.scale.set(1, direction.length(), 1);
+        dummy.updateMatrix();
+        actuators.setMatrixAt(i / 2, dummy.matrix);
+      }
+    }
+    petals.instanceMatrix.needsUpdate = true;
+    actuators.instanceMatrix.needsUpdate = true;
+  };
+  setOpening(0);
+  return { petals, actuators, setOpening };
+}
+
+function refinedNozzleMounts() {
+  const parts = [];
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI * 2 / 8 - Math.PI / 2;
+    // Shallow pads and transverse pins anchor each actuator to the cowl.
+    parts.push(new THREE.BoxGeometry(0.075, 0.035, 0.18).translate(0, 0.735, -2.02).rotateZ(a));
+    parts.push(new THREE.CylinderGeometry(0.035, 0.035, 0.09, 6, 1, true).rotateZ(Math.PI / 2).translate(0, 0.755, -2.02).rotateZ(a));
+  }
+  return parts;
+}
+
+function engine(mats, refined = false) {
   const pod = new THREE.Group();
   const prof = [[0.6, -2.4], [0.7, -2.0], [0.8, -1.0], [0.84, 0.2], [0.84, 1.4], [0.82, 2.0], [0.76, 2.32], [0.68, 2.42], [0.62, 2.34], [0.6, 2.1]];
   const shellGeo = new THREE.LatheGeometry(prof.map(([r, z]) => new THREE.Vector2(r, z)), 40).rotateX(Math.PI / 2);
   // heat tint of titanium towards the exhaust: straw, gold, a violet-blue band, then grey
   const p = shellGeo.attributes.position, col = [];
   const c = new THREE.Color();
-  const straw = new THREE.Color(0.95, 0.84, 0.62), gold = new THREE.Color(0.98, 0.62, 0.24), violet = new THREE.Color(0.58, 0.36, 0.88), blue = new THREE.Color(0.32, 0.55, 1.0), grey = new THREE.Color(0.55, 0.55, 0.6);
+  const [straw, gold, violet, blue, grey] = refined ? [
+    new THREE.Color(0.96, 0.92, 0.84), new THREE.Color(0.88, 0.76, 0.58), new THREE.Color(0.73, 0.70, 0.76),
+    new THREE.Color(0.65, 0.72, 0.76), new THREE.Color(0.66, 0.67, 0.66),
+  ] : [
+    new THREE.Color(0.95, 0.84, 0.62), new THREE.Color(0.98, 0.62, 0.24), new THREE.Color(0.58, 0.36, 0.88),
+    new THREE.Color(0.32, 0.55, 1.0), new THREE.Color(0.55, 0.55, 0.6),
+  ];
   for (let i = 0; i < p.count; i++) {
     const z = p.getZ(i), a = Math.atan2(p.getY(i), p.getX(i));
     const w = 0.12 * Math.sin(a * 3 + 1.0) + 0.08 * Math.sin(a * 7);   // uneven, like real bluing
@@ -153,42 +372,76 @@ function engine(mats) {
   innerRim.position.z = 2.22;
   pod.add(innerRim);
   // intake duct and fan
-  const duct = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.7, 32, 1, true).rotateX(Math.PI / 2), mats.duct);
+  let ductGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.7, 32, 1, true).rotateX(Math.PI / 2);
+  // A dark backplate closes the deepened intake without an extra draw call.
+  if (refined) ductGeo = mergeInto(ductGeo, new THREE.CircleGeometry(0.6, 32).translate(0, 0, -0.63));
+  const duct = new THREE.Mesh(ductGeo, mats.duct);
   duct.position.z = 1.8;
   pod.add(duct);
-  const fan = new THREE.Group();
-  const blades = [];
-  for (let k = 0; k < 16; k++) {
-    const b = new THREE.BoxGeometry(0.11, 0.43, 0.045);
-    // Swept, tapered blades catch the light individually as the fan turns.
-    const bp = b.attributes.position;
-    for (let i = 0; i < bp.count; i++) {
-      const y = bp.getY(i), taper = y > 0 ? 0.55 : 1;
-      bp.setX(i, bp.getX(i) * taper + y * 0.23);
-    }
-    b.computeVertexNormals();
-    b.rotateY(0.4).translate(0, 0.36, 0).rotateZ((k / 16) * Math.PI * 2);
-    blades.push(b);
+  const details = [];
+  if (refined) {
+    // Fixed vanes sit behind the rotor, adding depth to the intake.
+    const stator = new THREE.Mesh(refinedStatorGeometry(), mats.stator);
+    stator.name = 'refined-stator';
+    stator.position.z = 1.24;
+    pod.add(stator);
+    // Two fine, dark service joints sit just outside the cowl surface.
+    const foreJoint = new THREE.TorusGeometry(0.842, 0.008, 6, 40).translate(0, 0, 1.25);
+    const aftJoint = new THREE.TorusGeometry(0.812, 0.008, 6, 40).translate(0, 0, -0.8);
+    const jointsGeometry = [foreJoint, aftJoint, ...refinedNozzleMounts()].reduce((a, b) => a ? mergeInto(a, b) : b, null);
+    const joints = new THREE.Mesh(jointsGeometry, mats.stator);
+    joints.name = 'refined-cowl-joints';
+    pod.add(joints);
+    details.push(stator, joints);
   }
-  const bladeGeo = blades.reduce((acc, b) => (acc ? mergeInto(acc, b) : b), null);
-  fan.add(new THREE.Mesh(bladeGeo, mats.blade));
+  const fan = new THREE.Group();
+  let bladeGeo;
+  if (refined) {
+    bladeGeo = refinedRotorGeometry();
+  } else {
+    const blades = [];
+    for (let k = 0; k < 16; k++) {
+      const b = new THREE.BoxGeometry(0.11, 0.43, 0.045);
+      // Swept, tapered blades catch the light individually as the fan turns.
+      const bp = b.attributes.position;
+      for (let i = 0; i < bp.count; i++) {
+        const y = bp.getY(i), taper = y > 0 ? 0.55 : 1;
+        bp.setX(i, bp.getX(i) * taper + y * 0.23);
+      }
+      b.computeVertexNormals();
+      b.rotateY(0.4).translate(0, 0.36, 0).rotateZ((k / 16) * Math.PI * 2);
+      blades.push(b);
+    }
+    bladeGeo = blades.reduce((acc, b) => (acc ? mergeInto(acc, b) : b), null);
+  }
+  const rotor = new THREE.Mesh(bladeGeo, mats.blade);
+  if (refined) rotor.name = 'refined-rotor';
+  fan.add(rotor);
   const hub = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 24).rotateX(Math.PI / 2), mats.metal);
   hub.position.z = 0.16;
   fan.add(hub);
   fan.position.z = 1.55;
   pod.add(fan);
   // nozzle petals around a centre plug, glowing inside
-  const petalGeometries = [];
-  for (let k = 0; k < 20; k++) {
-    const a = (k / 20) * Math.PI * 2;
-    const petal = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.025, 0.6), mats.duct);
-    petal.position.set(Math.cos(a) * 0.56, Math.sin(a) * 0.56, -2.62);
-    petal.rotation.set(0, 0, a + Math.PI / 2, 'ZYX');
-    petal.rotateX(-0.16);
-    petal.updateMatrix();
-    petalGeometries.push(petal.geometry.applyMatrix4(petal.matrix));
+  let petals, nozzle;
+  if (refined) {
+    nozzle = refinedNozzle(mats);
+    petals = nozzle.petals;
+    pod.add(nozzle.actuators);
+    details.push(nozzle.actuators);
+  } else {
+    const petalGeometries = [];
+    for (let k = 0; k < 20; k++) {
+      const a = (k / 20) * Math.PI * 2;
+      const petal = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.025, 0.6), mats.duct);
+      petal.position.set(Math.cos(a) * 0.56, Math.sin(a) * 0.56, -2.62);
+      petal.rotation.set(0, 0, a + Math.PI / 2, 'ZYX');
+      petal.rotateX(-0.16);
+      petal.updateMatrix();
+      petalGeometries.push(petal.geometry.applyMatrix4(petal.matrix));
+    }
+    petals = new THREE.Mesh(petalGeometries.reduce((a, b) => a ? mergeInto(a, b) : b, null), mats.duct);
   }
-  const petals = new THREE.Mesh(petalGeometries.reduce((a, b) => a ? mergeInto(a, b) : b, null), mats.duct);
   pod.add(petals);
   const nozzleRim = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 8, 40), mats.blade);
   nozzleRim.position.z = -2.43;
@@ -206,21 +459,21 @@ function engine(mats) {
   plume.position.z = -2.75;
   plume.renderOrder = 2;
   pod.add(plume);
-  return { pod, fan, glow, plume, lip, petals };
+  return { pod, fan, glow, plume, lip, petals, details, nozzle };
 }
 
-const TURBINE_FRAG = /* glsl */`
+const turbineFrag = (refined) => /* glsl */`
 uniform float uHeat;
 varying vec2 vUv;
 void main() {
   vec2 d = vUv - 0.5;
   float r = length(d) * 2.0, a = atan(d.y, d.x);
   float vanes = smoothstep(0.2, 0.6, abs(sin(a * 11.0 + r * 2.0)));
-  vec3 hot = vec3(1.0, 0.42, 0.12) * (0.25 + 3.0 * uHeat) * pow(max(1.0 - r, 0.0), 1.4);
-  vec3 col = mix(vec3(0.03), hot, mix(0.35, 1.0, vanes)) + vec3(1.0, 0.75, 0.45) * smoothstep(0.25, 0.0, r) * uHeat * 2.0;
+  vec3 hot = ${refined ? 'mix(vec3(0.65, 0.36, 0.17), vec3(1.0, 0.17, 0.055), smoothstep(0.45, 1.0, uHeat)) * (0.12 + 0.85 * uHeat)' : 'vec3(1.0, 0.42, 0.12) * (0.25 + 3.0 * uHeat)'} * pow(max(1.0 - r, 0.0), 1.4);
+  vec3 col = mix(vec3(0.03), hot, mix(0.35, 1.0, vanes)) + vec3(1.0, 0.75, 0.45) * smoothstep(0.25, 0.0, r) * uHeat * ${refined ? '0.35' : '2.0'};
   gl_FragColor = vec4(col, 1.0);
 }`;
-const PLUME_FRAG = /* glsl */`
+const plumeFrag = (refined) => /* glsl */`
 uniform float uHeat, uTime;
 varying vec2 vUv;
 varying vec3 vN, vV;
@@ -229,8 +482,9 @@ void main() {
   float facing = pow(abs(dot(normalize(vN), normalize(vV))), 2.0);
   float flick = 0.75 + 0.25 * sin(along * 26.0 - uTime * 38.0 + vUv.x * 31.4) * sin(along * 9.0 - uTime * 17.0);
   // clamped: at the far rim 1 - along interpolates a hair below 0, and pow() of that is NaN (black dots)
-  float a = facing * pow(clamp(1.0 - along, 0.0, 1.0), 2.2) * flick * (0.12 + 0.5 * uHeat);
-  vec3 col = mix(vec3(1.0, 0.55, 0.25), vec3(0.75, 0.85, 1.0), smoothstep(0.0, 0.35, along));
+  float a = facing * pow(clamp(1.0 - along, 0.0, 1.0), 2.2) * flick * ${refined ? '(0.015 + 0.07 * uHeat)' : '(0.12 + 0.5 * uHeat)'};
+  vec3 col = mix(${refined ? 'vec3(0.8, 0.66, 0.48), vec3(0.72, 0.78, 0.8)' : 'vec3(1.0, 0.55, 0.25), vec3(0.75, 0.85, 1.0)'}, smoothstep(0.0, 0.35, along));
+  ${refined ? 'col = mix(col, vec3(1.0, 0.22, 0.08), 0.5 * smoothstep(0.45, 1.0, uHeat));' : ''}
   gl_FragColor = vec4(col * a, 1.0);
 }`;
 const FX_VERT = /* glsl */`
@@ -243,12 +497,12 @@ void main() {
   vV = -mv.xyz;
   gl_Position = projectionMatrix * mv;
 }`;
-function engineFx() {
+function engineFx(refined = false) {
   const u = { uHeat: { value: 0 }, uTime: { value: 0 } };
   return {
     uniforms: u,
-    turbine: new THREE.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: TURBINE_FRAG }),
-    plume: new THREE.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: PLUME_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    turbine: new THREE.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: turbineFrag(refined) }),
+    plume: new THREE.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: plumeFrag(refined), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
   };
 }
 
@@ -288,11 +542,11 @@ function tex(file, srgb, repeat = [1, 1]) {
   return t;
 }
 
-function hullMaterial(livery, elevon) {
+function hullMaterial(livery, elevon, refined = false) {
   const m = new THREE.MeshPhysicalMaterial({
     map: livery.map, normalMap: livery.normalMap, roughnessMap: livery.ormMap, metalnessMap: livery.ormMap,
     roughness: 1, metalness: 1, normalScale: new THREE.Vector2(0.9, 0.9),
-    clearcoat: 0.28, clearcoatRoughness: 0.4, envMapIntensity: 1.0,
+    clearcoat: refined ? 0.36 : 0.28, clearcoatRoughness: refined ? 0.32 : 0.4, envMapIntensity: refined ? 1.08 : 1.0,
     diffuseRoughness: 0.45,   // EON (three r187): chalky aged paint under the clearcoat
   });
   const wear = tex('glider_wear_nr.png', false);
@@ -327,7 +581,8 @@ function metalMaterial() {
   return m;
 }
 
-export function createGlider() {
+export function createGlider({ detail = 'current' } = {}) {
+  const refined = detail === 'refined';
   const root = new THREE.Group();
   const body = new THREE.Group();   // banks and pitches inside root
   root.add(body);
@@ -335,55 +590,60 @@ export function createGlider() {
   const fuse = fuselageGeometry();
   const livery = paintLivery({ lead, trail, span: SPAN, hingeC: HINGE, elevon: ELEVON }, fuse);
   const elevon = { value: new THREE.Vector2() };
-  const hull = hullMaterial(livery, elevon);
+  const hull = hullMaterial(livery, elevon, refined);
   const mats = {
     metal: metalMaterial(),
     duct: new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.55, metalness: 0.7, side: THREE.DoubleSide }),
     blade: new THREE.MeshStandardMaterial({ color: 0x8d9094, roughness: 0.3, metalness: 1 }),
     chrome: new THREE.MeshStandardMaterial({ color: 0xe8e8ea, roughness: 0.12, metalness: 1, envMapIntensity: 1.6 }),
   };
-  const fx = engineFx();
+  if (refined) mats.stator = new THREE.MeshStandardMaterial({ color: 0x545b5c, roughness: 0.55, metalness: 0.75 });
+  const fx = engineFx(refined);
   Object.assign(mats, { turbine: fx.turbine, plume: fx.plume });
-  const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x324953, metalness: 0.12, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.035,
-    ior: 1.48, envMapIntensity: 2.1,
-  });
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3c3e, roughness: 0.45, metalness: 0.7 });
 
   for (const side of [-1, 1]) body.add(new THREE.Mesh(wingGeometry(side), hull));
   body.add(new THREE.Mesh(fuse.geometry, hull));
 
   // canopy and its frame
-  const canopy = new THREE.Mesh(new THREE.LatheGeometry(CANOPY.map(([r, z]) => new THREE.Vector2(r, z)), 40).rotateX(Math.PI / 2), glass);
-  canopy.scale.set(CANOPY_W, CANOPY_H, 1);
-  canopy.position.y = CANOPY_Y;
-  body.add(canopy);
-  // A dark gasket grounds the transparent-looking shell against the fuselage.
-  const sealMat = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.68, metalness: 0.12 });
-  for (const side of [-1, 1]) {
-    const points = [];
-    for (let z = 2.65; z <= 7.7; z += 0.18) points.push(new THREE.Vector3(side * CANOPY_W * canopyR(z), CANOPY_Y, z));
-    body.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 32, 0.035, 5), sealMat));
+  if (refined) {
+    addRefinedCanopy(body);
+  } else {
+    const glass = new THREE.MeshPhysicalMaterial({
+      color: 0x324953, metalness: 0.12, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.035,
+      ior: 1.48, envMapIntensity: 2.1,
+    });
+    const canopy = new THREE.Mesh(new THREE.LatheGeometry(CANOPY.map(([r, z]) => new THREE.Vector2(r, z)), 40).rotateX(Math.PI / 2), glass);
+    canopy.scale.set(CANOPY_W, CANOPY_H, 1);
+    canopy.position.y = CANOPY_Y;
+    body.add(canopy);
+    // A dark gasket grounds the transparent-looking shell against the fuselage.
+    const sealMat = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.68, metalness: 0.12 });
+    for (const side of [-1, 1]) {
+      const points = [];
+      for (let z = 2.65; z <= 7.7; z += 0.18) points.push(new THREE.Vector3(side * CANOPY_W * canopyR(z), CANOPY_Y, z));
+      body.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 32, 0.035, 5), sealMat));
+    }
+    for (const z of [3.3, 4.7, 6.1]) {
+      const r = canopyR(z);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.045 / r, 6, 28, Math.PI), frameMat);
+      ring.scale.set(CANOPY_W * r * 1.01, CANOPY_H * r * 1.01, r);
+      ring.position.set(0, CANOPY_Y, z);
+      body.add(ring);
+    }
+    const rail = (f) => {
+      const pts = [];
+      for (let z = 2.65; z <= 7.7; z += 0.25) pts.push(f(z, canopyR(z)));
+      return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.04, 6), frameMat);
+    };
+    body.add(rail((z, r) => new THREE.Vector3(0, CANOPY_Y + CANOPY_H * r + 0.01, z)));
+    for (const s of [-1, 1]) body.add(rail((z, r) => new THREE.Vector3(s * CANOPY_W * r, CANOPY_Y + 0.02, z)));
   }
-  for (const z of [3.3, 4.7, 6.1]) {
-    const r = canopyR(z);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.045 / r, 6, 28, Math.PI), frameMat);
-    ring.scale.set(CANOPY_W * r * 1.01, CANOPY_H * r * 1.01, r);
-    ring.position.set(0, CANOPY_Y, z);
-    body.add(ring);
-  }
-  const rail = (f) => {
-    const pts = [];
-    for (let z = 2.65; z <= 7.7; z += 0.25) pts.push(f(z, canopyR(z)));
-    return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.04, 6), frameMat);
-  };
-  body.add(rail((z, r) => new THREE.Vector3(0, CANOPY_Y + CANOPY_H * r + 0.01, z)));
-  for (const s of [-1, 1]) body.add(rail((z, r) => new THREE.Vector3(s * CANOPY_W * r, CANOPY_Y + 0.02, z)));
 
   // engines under the wing roots, sticking out past the trailing edge
   const engines = [];
   for (const side of [-1, 1]) {
-    const e = engine(mats);
+    const e = engine(mats, refined);
     e.pod.position.set(side * 2.55, -0.42, -4.6);
     body.add(e.pod);
     engines.push(e);
@@ -434,14 +694,19 @@ export function createGlider() {
   body.traverse((o) => { if (o.isMesh) o.layers.enable(CASTER_LAYER); });
   // thin rings stay out of the floater shadow map: the hollow ring of nozzle petals cast dotted dark
   // circles on the sea and its light shafts (and the lip and plume add nothing to the shadow)
-  for (const e of engines) for (const o of [e.plume, e.lip, e.petals]) o.layers.disable(CASTER_LAYER);
+  for (const e of engines) for (const o of [e.plume, e.lip, e.petals, ...e.details]) o.layers.disable(CASTER_LAYER);
 
-  let t = 0, prevBank = 0, prevPitch = 0;
+  let t = 0, prevBank = 0, prevPitch = 0, nozzleOpening = 0;
   return {
     root, body, wingTips,
     radius: 13,
     update(dt, throttle, flight, enginePower = 1) {
       t += dt;
+      if (refined && dt > 0) {
+        const demand = THREE.MathUtils.clamp(throttle, 0, 1) * THREE.MathUtils.clamp(enginePower, 0, 1);
+        nozzleOpening += (demand - nozzleOpening) * (1 - Math.exp(-2 * dt));
+        for (const e of engines) e.nozzle.setOpening(nozzleOpening);
+      }
       for (const e of engines) {
         e.fan.rotation.z += dt * (9 + 45 * throttle) * enginePower;
         e.plume.visible = enginePower > 0;
