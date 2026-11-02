@@ -189,7 +189,7 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 .handover-key { color: var(--ink); font-size: 11px; letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
 .handover .begin { margin-top: 14px; background: rgba(3, 4, 5, .6); }
 
-.audio-controls { position: fixed; z-index: 31; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 10px; letter-spacing: .08em; text-shadow: 0 1px 8px #000; transition: opacity .4s var(--ease); }
+.audio-controls { position: fixed; z-index: 31; right: 72px; bottom: 27px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 10px; letter-spacing: .08em; text-shadow: 0 1px 8px #000; transition: opacity .4s var(--ease); }
 .audio-controls input { appearance: none; -webkit-appearance: none; width: 90px; height: 24px; margin: 0; background: transparent; cursor: pointer; }
 .audio-controls input::-webkit-slider-runnable-track { height: 1px; border: 0; background: rgba(255,255,255,.55); }
 .audio-controls input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 7px; height: 7px; margin-top: -3px; box-sizing: border-box; border: 1px solid rgba(3,4,5,.6); border-radius: 50%; background: var(--ink); }
@@ -197,4 +197,11 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 .audio-controls input::-moz-range-thumb { width: 7px; height: 7px; box-sizing: border-box; border: 1px solid rgba(3,4,5,.6); border-radius: 50%; background: var(--ink); }
 .audio-controls input:focus-visible { outline: 1px solid rgba(255,255,255,.7); outline-offset: 4px; }
 .audio-controls output { min-width: 3.2em; }
-@media (max-width: 640px) { .audio-controls { left: 16px; bottom: 90px; } }
+@media (max-width: 1000px) {
+  .audio-controls { right: 24px; bottom: 96px; }
+  .toast { bottom: 144px; }
+}
+@media (max-width: 640px) {
+  .audio-controls { right: 16px; bottom: 76px; }
+  .toast { bottom: 112px; }
+}

@@ -31,6 +31,22 @@ test('visibility pauses and resumes the existing graph, preserving time', async 
   await s.handleVisibility(false); assert.equal(s.music.currentTime, 42); assert.equal(s.ctx.state, 'running');
   assert.equal(s.music.paused, false); assert.equal(s.ctx.sources, 1); assert.equal(states.at(-1), 'playing');
 });
+
+test('flight engine follows power, shuts off for the final glide and stays off after finish', async () => {
+  const { s } = setup(); await s.start();
+  const calls = [];
+  s.engine = { setPower: value => calls.push(['power', value]), setEnabled: value => calls.push(['enabled', value]) };
+  s.windGain = s.seaGain = { gain: { setTargetAtTime() {} } };
+  s.windFilter = { frequency: { setTargetAtTime() {} } };
+  s.update(0.8, 20, null, 1);
+  s.update(0.8, 20, null, 0);
+  assert.deepEqual(calls, [['power', 0.8], ['enabled', true], ['power', 0], ['enabled', false]]);
+  s.finish();
+  assert.deepEqual(calls.at(-1), ['enabled', false]);
+  const count = calls.length;
+  s.update(1, 20, null, 1);
+  assert.equal(calls.length, count, 'finished flight cannot restart propulsion');
+});
 test('intentional pause is not resumed after visibility change', async () => {
   const { s } = setup(); await s.start(); s.music.pause(); await s.handleVisibility(true); await s.handleVisibility(false);
   assert.equal(s.music.plays, 1); assert.equal(s.musicDiagnostic.state, 'paused');

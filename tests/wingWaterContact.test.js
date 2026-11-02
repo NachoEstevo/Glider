@@ -247,9 +247,9 @@ test('ambience creates three looping wing sources and contact updates never rest
   sound._ambience();
   assert.equal(await sound.wingWater.ready, true);
   const sources = sound.ctx.nodes.filter(node => node.kind === 'buffer');
-  assert.equal(sources.length, 5); // wind, sea, and the three wing-speed samples
+  assert.equal(sources.length, 6); // wind, sea, engine, and the three wing-speed samples
   assert.ok(sources.every(source => source.starts === 1));
   for (let i = 0; i < 100; i++) sound.setWingWaterContact(i % 2, 1);
-  assert.equal(sound.ctx.nodes.filter(node => node.kind === 'buffer').length, 5);
+  assert.equal(sound.ctx.nodes.filter(node => node.kind === 'buffer').length, 6);
   assert.ok(sources.every(source => source.starts === 1));
 });

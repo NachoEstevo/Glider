@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEngineAudio } from '../src/demo/engineAudio.js';
+import { createEngineAudio } from '../src/audio/engineAudio.js';
 
 class Param {
   constructor(value = 0) { this.value = value; this.targets = []; }

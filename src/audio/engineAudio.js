@@ -1,4 +1,4 @@
-// A continuously running engine voice for the comparison demo.
+// A continuously running engine voice shared by the flight and comparison demo.
 // Power is 0..1; selection fades the voice without restarting its sources.
 export function createEngineAudio(ctx, output) {
   const nodes = [];

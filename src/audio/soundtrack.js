@@ -1,4 +1,5 @@
 import { createWingWaterAudio } from './wingWaterAudio.js';
+import { createEngineAudio } from './engineAudio.js';
 
 // The playlist from the video as one continuous mix (it is the clock for the intro),
 // the cockpit voices, and a synthesized bed of wind and sea under it all.
@@ -11,7 +12,7 @@ const FX_LEVEL = 0.7;
 // on top of that: the water beds and splashes at a tenth, the gulls 20% down
 const WATER_LEVEL = 0.1;
 const GULL_LEVEL = 0.8;
-const SFX = ['gull_1', 'gull_2', 'gull_3', 'gull_flock', 'lap_loop', 'surf_loop', 'island_loop', 'engine_loop', 'creak_1', 'creak_2', 'splash'];
+const SFX = ['gull_1', 'gull_2', 'gull_3', 'gull_flock', 'lap_loop', 'surf_loop', 'island_loop', 'creak_1', 'creak_2', 'splash'];
 
 export class Soundtrack {
   constructor({ tracks, dialogue }) {
@@ -271,7 +272,7 @@ export class Soundtrack {
       }
     }));
     this.loops = {};
-    for (const id of ['lap_loop', 'surf_loop', 'island_loop', 'engine_loop']) {
+    for (const id of ['lap_loop', 'surf_loop', 'island_loop']) {
       const b = this.sfx.get(id);
       if (!b) continue;
       const s = ctx.createBufferSource();
@@ -326,7 +327,6 @@ export class Soundtrack {
     set('lap_loop', 0.9 * WATER_LEVEL * env.city * env.low);
     set('surf_loop', 0.85 * WATER_LEVEL * env.shore * (0.35 + 0.65 * env.low));
     set('island_loop', 0.7 * env.land * (0.3 + 0.7 * env.low));
-    set('engine_loop', 0.85 * (0.1 + 0.32 * throttle) * Math.max(0, enginePower), 0.5);
     // gulls call now and then from wherever they are
     if (t > this.nextGull) {
       const near = env.gulls.length ? env.gulls[Math.floor(Math.random() * env.gulls.length)] : null;
@@ -396,6 +396,10 @@ export class Soundtrack {
     noise(0.7).connect(sea).connect(this.seaGain).connect(this.master);
 
     this.wingWater = createWingWaterAudio(ctx, this.master);
+    const engineGain = ctx.createGain();
+    engineGain.gain.value = 1.275; // approved engine level, including the 15% reduction
+    engineGain.connect(this.master);
+    this.engine = createEngineAudio(ctx, engineGain);
   }
 
   // Called once per frame with the filtered wake contact. The sources never restart.
@@ -439,6 +443,8 @@ export class Soundtrack {
   // speed01: 0 cruise .. 1 boost; altitude in metres; env: see _world
   update(speed01, altitude, env, enginePower = 1) {
     if (!this.ctx || this.finishing) return;
+    this.engine?.setPower(speed01 * enginePower);
+    this.engine?.setEnabled(enginePower > 0);
     const t = this.ctx.currentTime, low = Math.max(0, 1 - altitude / 160);
     this.windGain.gain.setTargetAtTime((0.05 + 0.16 * speed01) * FX_LEVEL, t, 0.4);
     this.windFilter.frequency.setTargetAtTime(450 + 900 * speed01, t, 0.6);
@@ -456,6 +462,7 @@ export class Soundtrack {
 
   finish(seconds = 6) {
     if (this.finishing) return;
+    this.engine?.setEnabled(false);
     this.wingWater?.update(0, 0);
     this.finishing = true;
     this._generation++;

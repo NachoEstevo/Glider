@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createGlider } from '../glider/gliderModel.js';
 import { worldHeight } from '../world/worldHeight.js';
-import { createEngineAudio } from './engineAudio.js';
+import { createEngineAudio } from '../audio/engineAudio.js';
 import { createWingWaterAudio } from '../audio/wingWaterAudio.js';
 import './gliderDemo.css';
 

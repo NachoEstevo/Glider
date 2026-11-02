@@ -121,7 +121,7 @@ async function main() {
   Object.assign(post.params, { bloomStrength: mobile ? 0 : 0.035, bloomThreshold: 1.5, contrast: 1.04, saturation: 1.07, keyValue: 0.2 });
 
   // --- the glider and its company --------------------------------------------------
-  let glider = createGlider();
+  let glider = createGlider({ detail: GLIDER_DEMO ? 'current' : 'refined' });
   scene.add(glider.root);
   const trails = new Trails();
   scene.add(trails.group);
