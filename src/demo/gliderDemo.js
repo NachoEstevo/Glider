@@ -111,7 +111,7 @@ export function mountGliderDemo(app, selectModel) {
   };
   function applyAudio() {
     if (!ctx || !layered || disposed) return;
-    originalGain.gain.setTargetAtTime(state.audio === 'original' ? .7 * (.1 + .32 * state.power) : 0, ctx.currentTime, .12);
+    originalGain.gain.setTargetAtTime(state.audio === 'original' ? .85 * .7 * (.1 + .32 * state.power) : 0, ctx.currentTime, .12);
     layered.setPower(state.power);
     layered.setEnabled(state.audio === 'layered');
   }
@@ -120,7 +120,7 @@ export function mountGliderDemo(app, selectModel) {
     ctx = new AudioContext();
     master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
     originalGain = ctx.createGain(); originalGain.gain.value = 0; originalGain.connect(master);
-    refinedGain = ctx.createGain(); refinedGain.gain.value = 1.5; refinedGain.connect(master);
+    refinedGain = ctx.createGain(); refinedGain.gain.value = 1.275; refinedGain.connect(master);
     layered = createEngineAudio(ctx, refinedGain);
     wingWater = createWingWaterAudio(ctx, master);
     await ctx.resume();

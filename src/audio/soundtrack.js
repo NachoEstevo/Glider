@@ -326,7 +326,7 @@ export class Soundtrack {
     set('lap_loop', 0.9 * WATER_LEVEL * env.city * env.low);
     set('surf_loop', 0.85 * WATER_LEVEL * env.shore * (0.35 + 0.65 * env.low));
     set('island_loop', 0.7 * env.land * (0.3 + 0.7 * env.low));
-    set('engine_loop', (0.1 + 0.32 * throttle) * Math.max(0, enginePower), 0.5);
+    set('engine_loop', 0.85 * (0.1 + 0.32 * throttle) * Math.max(0, enginePower), 0.5);
     // gulls call now and then from wherever they are
     if (t > this.nextGull) {
       const near = env.gulls.length ? env.gulls[Math.floor(Math.random() * env.gulls.length)] : null;
