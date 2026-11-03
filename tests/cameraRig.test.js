@@ -12,6 +12,26 @@ const setup = (aspect = 1.6) => {
 };
 const finite = rig => [rig.yaw, ...rig.pos.toArray(), ...rig.look.toArray(), ...rig.up.toArray(), ...rig.camera.quaternion.toArray()].every(Number.isFinite);
 
+test('overhead to chase eases in and follows the moving glider', () => {
+  const {rig, flight} = setup();
+  const initial = rig.pos.clone();
+  const initialUp = rig.up.clone();
+  rig.cycle();
+  rig.update(flight, .05);
+  assert.ok(rig.pos.distanceTo(initial) < .5);
+  assert.ok(rig.up.angleTo(initialUp) < .02);
+  for (let i = 0; i < 74; i++) {
+    flight.pos.z += 1;
+    rig.update(flight, .05);
+    assert.ok(finite(rig));
+  }
+  assert.ok(rig.overheadTransition);
+  rig.update(flight, .1);
+  assert.equal(rig.overheadTransition, null);
+  assert.ok(Math.abs(rig.pos.y - (flight.pos.y + 15)) < .01);
+  assert.ok(Math.abs(rig.pos.z - (flight.pos.z - 46)) < .01);
+});
+
 test('return from orbit enters overhead over 2.8 seconds without angular jumps', () => {
   const {rig, flight} = setup();
   rig.cycle(); rig.update(flight, 3);

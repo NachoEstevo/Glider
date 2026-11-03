@@ -38,16 +38,17 @@ export class CameraRig {
 
   update(flight, dt) {
     if (this.mode !== this.lastMode) {
-      this.overheadTransition = this.mode === 'overhead' ? {
+      this.overheadTransition = (this.mode === 'overhead' || this.mode === 'chase') ? {
         elapsed: 0,
+        duration: this.mode === 'chase' ? 3.8 : 2.8,
         pos: this.pos.clone(), look: this.look.clone(), up: this.up.clone(),
         origin: flight.pos.clone(), yaw: this.yaw,
       } : null;
       this.lastMode = this.mode;
     }
     const transition = this.overheadTransition;
-    if (transition) transition.elapsed = Math.min(2.8, transition.elapsed + Math.max(0, dt));
-    const t = transition ? transition.elapsed / 2.8 : 1;
+    if (transition) transition.elapsed = Math.min(transition.duration, transition.elapsed + Math.max(0, dt));
+    const t = transition ? transition.elapsed / transition.duration : 1;
     const blend = t * t * (3 - 2 * t);
     // portrait screens see a narrow slice horizontally: pull back to keep the framing
     const g = flight.pos, z = this.zoom * (this.camera.aspect < 1 ? 1.75 : 1);
