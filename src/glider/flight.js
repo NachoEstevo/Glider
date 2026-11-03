@@ -162,7 +162,7 @@ export class Flight {
     if (this.pos.y > MAX_ALT) vs = Math.min(vs, (MAX_ALT - this.pos.y) * 0.8);
     // Ease the requested descent well before reaching the water. The low gain
     // accounts for vertical-speed response lag and prevents a floor impact.
-    if (floor === 6.9 && vs < 0) vs = Math.max(vs, -0.25 * Math.max(0, this.pos.y - floor));
+    if (floor === 6.9 && vs < 0) vs = Math.max(vs, -0.3 * Math.max(0, this.pos.y - floor));
     const desiredVSpeed = damp(this.vSpeed, vs, 1.1, dt);
     this.vSpeed += THREE.MathUtils.clamp(desiredVSpeed - this.vSpeed, -8 * dt, 8 * dt);
 

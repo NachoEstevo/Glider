@@ -134,7 +134,9 @@ export class WingWake {
       node.getWorldPosition(p);
       const speed = THREE.MathUtils.clamp((flight.speed - 8) / 28, 0, 1);
       const bank = THREE.MathUtils.clamp((Math.abs(flight.bank) - 0.25) / 0.25, 0, 1);
-      const near = 1 - THREE.MathUtils.smoothstep(Math.abs(p.y), 0.4, 1.3);
+      // The GPU-displaced waves are not available to the CPU. Allow a small
+      // envelope around mean sea level so moderate banks can catch the swell.
+      const near = 1 - THREE.MathUtils.smoothstep(Math.abs(p.y), 0.4, 2.2);
       const water = near > 0 && bank > 0 && speed > 0 && worldHeight(p.x, p.z) < -0.5 && flight.obstacleTop(p.x, p.z) < 0;
       const target = speed * bank * near * (water ? 1 : 0);
       const sideResponse = 1 - Math.exp(-dt * (target > this.sideStrength[side] ? 12 : 6));

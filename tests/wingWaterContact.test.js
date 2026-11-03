@@ -237,6 +237,17 @@ test('contact signal rises while grazing and decays after the wing lifts', () =>
   assert.ok(wake.contactStrength < 0.001);
 });
 
+test('a moderately banked wing can graze at normal cruise speed', () => {
+  const impacts = Array.from({length: 8}, () => new THREE.Vector4());
+  const wake = new WingWake({uniforms: {uImpact: {value: impacts}, uImpactSize: {value: Array(8).fill(1)}}});
+  const tips = [new THREE.Object3D(), new THREE.Object3D()];
+  tips[0].position.set(10000, 1.5, 10000);
+  tips[1].position.set(10000, 10, 10000);
+  const flight = {speed: 34, bank: .45, obstacleTop: () => -Infinity};
+  for (let i = 0; i < 60; i++) wake.update(1 / 60, tips, flight);
+  assert.ok(wake.contactStrength > .1);
+});
+
 
 test('ambience creates three looping wing sources and contact updates never restart them', async t => {
   const sound = Object.create(Soundtrack.prototype);
